@@ -1,0 +1,13 @@
+pandas
+numpy
+matplotlib
+geopandas
+shapely
+pyproj
+scikit-learn
+scikit-fuzzy
+tqdm
+rpy2
+gurobipy
+tabulate
+openpyxl
