@@ -148,7 +148,7 @@ def build_normalized_decision_matrix_table() -> str:
 def _solver_rows(instance: dict) -> list[str]:
     durations = [180, 300, 500, 700, 900]
     seeds = [42, 33, 73]
-    teams = [1, 3, 5]
+    teams = [1, 2, 3]
 
     rows: list[str] = []
     for duration in durations:
@@ -193,7 +193,7 @@ def build_solver_results_table() -> str:
         "\n"
         r"\renewcommand{\arraystretch}{0.75}"
         "\n"
-        r"\captionof{table}{Solver execution results for the solution pool generation. Team~1 \citep{buljubasic2020}, Team~3 \citep{parreno2020}, and Team~5 \citep{langiu2020}. Dashes (---) indicate that no feasible solution was found.}"
+        r"\captionof{table}{Solver execution results for the solution pool generation. Team~1 \citep{buljubasic2020}, Team~2 \citep{parreno2020}, and Team~3 \citep{langiu2020}. Dashes (---) indicate that no feasible solution was found.}"
         "\n"
         r"\label{tab:solver_results}"
         "\n"

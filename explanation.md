@@ -22,7 +22,7 @@ Naming note:
   - `create_run_all_bat()`
   - `main()`
 - What it does:
-  - Builds a batch/shell execution harness for Team1, Team3, Team5 binaries.
+  - Builds a batch/shell execution harness for Team1, Team2, Team3 binaries.
   - Runs each solver for `(time_limit in {180,300,500,700,900}) x (seed in {42,33,73})`.
   - Writes `sol*_t*_X_12_s*.txt` and organizes them by team folders.
 

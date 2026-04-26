@@ -97,8 +97,8 @@ def load_profiles_for_radar() -> tuple[list[str], list[list[float]], list[str]]:
 
     alternatives = [
         ("T1_D300_S33", "T1_D300_S33"),
-        ("T3_D500_S42", "T3_D500_S42"),
-        ("T3_D300_S33", "T3_D300_S33"),
+        ("T2_D500_S42", "T2_D500_S42"),
+        ("T2_D300_S33", "T2_D300_S33"),
     ]
 
     data: list[list[float]] = []

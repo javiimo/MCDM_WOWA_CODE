@@ -1,7 +1,7 @@
 # Fuzzy-MCDM for Maintenance Scheduling
 
 This repository contains the code used to build and analyze a multi-criteria decision model for maintenance schedules derived from the ROADEF/EURO 2020 challenge context.
-The current decision matrix is built from 31 unique alternatives obtained from Team 1, Team 3, and Team 5 solver runs.
+The current decision matrix is built from 31 unique alternatives obtained from Team 1, Team 2, and Team 3 solver runs.
 
 The public workflow in this repository is:
 1. Build the raw decision matrix from a solution pool.
@@ -57,8 +57,8 @@ Please verify redistribution rights for third-party binaries/data before publish
 - ROADEF/EURO Challenge 2020 (Instance X12): https://roadef.org/challenge/2020/en/
 - `RTE_ChallengeROADEF2020_checker.py` source: https://github.com/rte-france/challenge-roadef-2020
 - Team 1 solver source: https://github.com/mbmv7/rc
-- Team 3 solver source: https://github.com/FranciscoParrenoTorres/Roadef2020
-- Team 5 solver source reference: https://rwth-aachen.sciebo.de/s/BoMYqRmy7GbwlIm
+- Team 2 solver source: https://github.com/FranciscoParrenoTorres/Roadef2020
+- Team 3 solver source reference: https://rwth-aachen.sciebo.de/s/BoMYqRmy7GbwlIm
 - Map of France geojson: https://www.data.gouv.fr/datasets/contours-administratifs
 - French parks dataset source: https://www.data.gouv.fr/fr/datasets/parcs-naturels-regionaux-pnr-france-metropolitaine
 - French ski stations dataset source: https://www.statistiques.developpement-durable.gouv.fr/pres-de-300-000-hectares-mobilises-par-les-stations-de-ski-au-coeur-despaces-naturels-0 
