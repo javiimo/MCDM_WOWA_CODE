@@ -89,7 +89,7 @@ def load_profiles_for_radar() -> tuple[list[str], list[list[float]], list[str]]:
         "Reliability\nStress",
         "Robustness\nSlack",
         "Ski Season\nRisk",
-        "Social Weekend\nRisk",
+        "Social\nWeekend Risk",
         "Max Critical\nOverlap",
         "Risk\nVolatility",
         "Summer Eco-Stress",
@@ -106,7 +106,9 @@ def load_profiles_for_radar() -> tuple[list[str], list[list[float]], list[str]]:
     for alternative_id, legend_label in alternatives:
         row = df.loc[df["Alternative"] == alternative_id]
         if row.empty:
-            raise ValueError(f"Alternative {alternative_id} not found in the normalized matrix.")
+            raise ValueError(
+                f"Alternative {alternative_id} not found in the normalized matrix."
+            )
 
         values = row.iloc[0][
             [
@@ -173,8 +175,8 @@ def plot_robust_alternatives_radar():
     )
 
     plt.title(
-        "Comparative Profile of Robust Choices\n(Normalized Performance)",
-        y=1.1,
+        "Comparative Profile of Robust Choices",
+        y=1.15,
         fontsize=18,
         weight="bold",
     )

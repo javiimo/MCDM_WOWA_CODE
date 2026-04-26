@@ -62,7 +62,7 @@ def plot_spatial_reconstruction_map():
     parks_gdf.plot(
         ax=ax, facecolor="forestgreen", edgecolor="none", alpha=0.4, zorder=2
     )
-    ski_gdf.plot(ax=ax, color="blue", markersize=10, alpha=0.7, zorder=3)
+    ski_gdf.plot(ax=ax, color="blue", marker="^", markersize=20, alpha=0.7, zorder=3)
     pts_gdf.plot(
         ax=ax, color="red", markersize=30, edgecolor="white", linewidth=0.5, zorder=4
     )
@@ -77,7 +77,7 @@ def plot_spatial_reconstruction_map():
         Line2D(
             [0],
             [0],
-            marker="o",
+            marker="^",
             color="w",
             label="Ski Areas",
             markerfacecolor="blue",
