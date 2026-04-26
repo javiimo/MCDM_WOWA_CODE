@@ -44,8 +44,6 @@ class WOWAStabilityAnalyzer:
         self.normalized_criteria_matrix: pd.DataFrame | None = None
         self.transformed_alternative_matrix: np.ndarray | None = None
         self.unified_importance_grid: list[float] | None = None
-        self.segment_centers: np.ndarray | None = None
-        self.segment_widths: np.ndarray | None = None
         self.orness_coefficients: np.ndarray | None = None
         self.alternatives: list[str] | None = None
 
@@ -144,12 +142,6 @@ class WOWAStabilityAnalyzer:
         )
 
         self.transformed_alternative_matrix = np.zeros((n_alts, k_segments))
-        self.segment_centers = np.array(
-            [(grid[k] + grid[k + 1]) / 2 for k in range(k_segments)]
-        )
-        self.segment_widths = np.array(
-            [grid[k + 1] - grid[k] for k in range(k_segments)]
-        )
         if k_segments <= 1:
             self.orness_coefficients = np.array([0.0] * k_segments, dtype=float)
         else:

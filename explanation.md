@@ -217,19 +217,23 @@ Paper normalization:
 
 Code mapping:
 - `wowa_stability_analysis.py::WOWAStabilityAnalyzer.load_and_normalize_decision_matrix`
-- `directions` dictionary marks:
+- `directions` explicitly marks:
   - maximize: `"Robustness Slack"`
-  - minimize: all other six criteria.
+  - minimize: `"Reliability Stress"`, `"Ski Season Risk"`, `"Social Weekend Risk"`, `"Max Critical Overlap"`, `"Risk Volatility"`, `"Summer Eco-Stress"`
 
-Implemented formulas:
+Implemented formulas in the current repository state:
 - maximize:
   - `x_norm = x / max(x)`
 - minimize:
-  - `x_norm = 1 - (x - min(x))/max(x)`
+  - `x_norm = 1 - (x - min(x)) / max(x)`
 
-Result:
-- stored in `self.normalized_decision_matrix`
-- numeric criteria subset in `self.normalized_criteria_matrix`.
+Important implementation note:
+- the minimizing formula above is the exact code path currently used.
+- therefore minimizing criteria are not necessarily mapped to `[0,1]`; their lower endpoint is `min(x)/max(x)` when `max(x) > 0`.
+
+Stored outputs:
+- `self.normalized_decision_matrix`: full raw dataframe with normalized criterion columns
+- `self.normalized_criteria_matrix`: only the seven normalized criterion columns, in fixed order
 
 ---
 
@@ -254,6 +258,36 @@ Implementation note:
 - A quantifier `Q` is not required for this optimization path: `Q` would only be needed if one wants to pre-parameterize/fix `W` via `W_k = Q(t_k)-Q(t_{k-1})`.
 - Here, `W` is determined by optimization under simplex + orness + dominance constraints.
 
+### Where the unified grid `Omega` is built, step by step
+
+The exact execution path is:
+1. `load_and_normalize_decision_matrix()` reads `output/csv/decision_matrix_raw.csv` and prepares `self.normalized_criteria_matrix`.
+2. `build_unified_importance_grid()` gets the criterion-importance vector in that exact column order through `get_ordered_importance_vector()`.
+3. For each alternative row:
+   - sort the seven normalized criterion values in descending order,
+   - reorder the importance vector with the same permutation,
+   - compute cumulative importances with `np.cumsum(...)`.
+4. Collect all those cumulative sums across all alternatives, then add `0.0` and `1.0`.
+
+Result:
+- the final sorted breakpoint list is stored in `self.unified_importance_grid`
+- this is the actual `Omega` used later by the LP
+
+### Where the transformed matrix `Psi` is built
+
+`build_transformed_alternative_matrix()` uses `self.unified_importance_grid` and creates one row of `Psi` per alternative:
+1. For each alternative, sort normalized criterion values descending.
+2. Reorder criterion importances the same way and compute cumulative importances.
+3. For each segment `[Omega_k, Omega_{k+1}]`, find which sorted criterion covers the segment end.
+4. Assign that sorted criterion value to `Psi[i, k]`.
+
+Stored arrays:
+- `self.transformed_alternative_matrix`: the full `Psi`
+- `self.orness_coefficients`: discrete orness coefficients `nu_k = (K-k)/(K-1)` used by the current LP
+
+Important note:
+- the active orness constraints use `self.orness_coefficients`, because this implementation optimizes the segment-weight vector `w` directly rather than recovering it from a separate BUM quantifier `Q`.
+
 ---
 
 ## 2.6 Section 04 (manuscript Section 04): Stability Radius LP
@@ -267,42 +301,140 @@ Code mapping:
   - loops each candidate alternative `i_cand`
   - builds one LP model per candidate.
 
-Implemented constraints:
-1. Simplex:
+### Exact Gurobi objects created in code
+
+For each candidate alternative:
+- `model = gp.Model("Stability")`
+- `w = model.addVars(k_segments, lb=0.0, ub=1.0, name="w")`
+- `rho = model.addVar(lb=0.0, name="rho")`
+
+So the LP has:
+- one continuous variable `w_k` per segment of `Omega`
+- one continuous scalar `rho`
+
+### Objective function
+
+Defined exactly with:
 ```text
-sum_k w_k = 1, w_k >= 0
-```
-2. Orness interval:
-```text
-alpha_min <= sum_k w_k * nu_k <= alpha_max
-```
-3. Simplex-face margin:
-```text
-w_k >= rho * ||P e_k||_2
-```
-4. Orness-boundary margin:
-```text
-sum_k w_k * nu_k - alpha_min >= rho * ||P nu||_2
-alpha_max - sum_k w_k * nu_k >= rho * ||P nu||_2
-```
-5. Dominance margin for each rival:
-```text
-sum_k w_k * (Psi_i[k] - Psi_j[k]) >= rho * ||P(Psi_i - Psi_j)||_2
+model.setObjective(rho, GRB.MAXIMIZE)
 ```
 
-Objective:
+So the solver maximizes the largest admissible stability radius around a candidate winner.
+
+### Constraint block 1: simplex feasibility of the weight vector
+
+Defined with:
 ```text
-maximize rho
+sum_k w_k = 1
+0 <= w_k <= 1
 ```
 
-Outputs per candidate:
+Code location:
+- `model.addConstr(gp.quicksum(w[k] for k in range(k_segments)) == 1.0, "SumWeights")`
+- lower/upper bounds are already embedded in `model.addVars(...)`
+
+### Constraint block 2: orness interval
+
+The current LP uses the discrete coefficient vector:
+```text
+nu_k = (K-k)/(K-1)
+```
+with `K = k_segments`.
+
+Code path:
+1. `build_transformed_alternative_matrix()` computes `self.orness_coefficients`
+2. `solve_stability_radius_lp(...)` builds
+```text
+orness_expr = sum_k w_k * nu_k
+```
+3. Then adds:
+```text
+alpha_min <= orness_expr <= alpha_max
+```
+
+### Constraint block 3: simplex-face margin
+
+Purpose:
+- `rho` is not only a feasibility radius.
+- it is forced to stay at least `rho` away from every simplex face `w_k = 0`.
+
+Code:
+```text
+face_margin = ||P e_k||_2
+w_k >= rho * face_margin
+```
+
+Implementation detail:
+- the code computes `face_margin` once using the first basis vector because all simplex faces are symmetric after projection onto the simplex hyperplane.
+
+### Constraint block 4: orness-boundary margin
+
+Purpose:
+- force the solution to stay at least `rho` away from both hyperplanes
+  - `orness = alpha_min`
+  - `orness = alpha_max`
+
+Code:
+```text
+nu_margin = ||P nu||_2
+orness_expr - alpha_min >= rho * nu_margin
+alpha_max - orness_expr >= rho * nu_margin
+```
+
+These constraints are skipped only if `nu_margin == 0`.
+
+### Constraint block 5: dominance margin against every rival
+
+For each rival alternative `j != i`:
+1. build the transformed-space difference
+```text
+diff = Psi_i - Psi_j
+```
+2. compute the projected norm
+```text
+dist = ||P diff||_2
+```
+3. add the dominance-margin constraint
+```text
+sum_k w_k * diff_k >= rho * dist
+```
+
+This is the exact place where pairwise robust dominance is encoded in Gurobi.
+
+### Why projected norms appear in the LP
+
+The helper functions:
+- `project_to_simplex_hyperplane(vec)`
+- `projected_simplex_norm(vec)`
+
+implement the geometry of distances inside the affine simplex `sum_k w_k = 1`.
+
+Interpretation:
+- `||P e_k||_2` gives the correct Euclidean scaling for distance to simplex faces
+- `||P nu||_2` gives the correct Euclidean scaling for distance to the orness hyperplanes inside that same affine space
+- `||P(Psi_i - Psi_j)||_2` gives the correct Euclidean scaling for distance to a dominance-separating hyperplane
+
+### Solver output and winner selection
+
+If the model is optimal, the script stores:
 - `Alternative`
-- `Rho` (stability radius)
+- `Rho`
 - `Optimized_Orness`
-- `Is_Stable`
+- `Is_Stable = (Rho > 1e-5)`
 
-Winner selection in downstream scripts:
-- sort by `Rho` descending (`archive/scripts_exploration/choose_importance.py`, `wowa_stability_analysis.py` main).
+Then `main()`:
+1. defines two importance scenarios (`Baseline`, `Sustainability`)
+2. defines four orness profiles:
+   - `Risk_Averse = [0.00, 0.35]`
+   - `Neutral = [0.35, 0.65]`
+   - `Optimistic = [0.65, 1.00]`
+   - `Full_Spectrum = [0.00, 1.00]`
+3. solves one LP per candidate alternative and per profile
+4. sorts results by `Rho` descending
+5. keeps the first row of each profile as the robust winner
+
+This means the winner is **not** the alternative with the highest score under one fixed weight vector.
+It is the alternative whose best admissible Chebyshev-like safety radius `rho` is largest in the feasible weight region.
 
 ---
 
@@ -397,7 +529,7 @@ These are important for strict reproducibility claims.
 - This is consistent with the robust-selection objective in this repository.
 - A quantifier `Q` is optional and only needed to generate a fixed parametric `W`, not to solve the stability LP used here.
 
-2. The current LP implementation matches the manuscript geometry from manuscript Section 04.
+2. The current LP implementation matches the repository's active Section 04 geometry.
 - It includes:
   - simplex feasibility,
   - orness bounds using `nu_k = (K-k)/(K-1)`,
