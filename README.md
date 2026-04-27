@@ -4,9 +4,10 @@ This repository contains the code used to build and analyze a multi-criteria dec
 The current decision matrix is built from 31 unique alternatives obtained from Team 1, Team 2, and Team 3 solver runs.
 
 The public workflow in this repository is:
-1. Build the raw decision matrix from a solution pool.
-2. Run WOWA-based stability analysis.
-3. Generate paper plots and tables (optional, via `plots_and_tables/`).
+1. Generate or reuse the spatial reconstruction `.npy` files.
+2. Build the raw decision matrix from a solution pool.
+3. Run WOWA-based stability analysis.
+4. Generate paper plots and tables (optional, via `plots_and_tables/`).
 
 Detailed paper-to-code traceability is documented in [explanation.md](explanation.md).
 
@@ -30,16 +31,19 @@ pip install -r requirements.txt
 
 If you do not use the provided virtual environment, ensure Python and required libraries are available.  
 `wowa_stability_analysis.py` requires a working `gurobipy` installation and license.
-`spatial_reconstruction.py` is optional and requires R + `rpy2` + R package `smacof`.
+`spatial_reconstruction.py` is required if you need to generate the `output/npy/points_*.npy` and `output/npy/points_keys_*.npy` files used by `decision_matrix_builder.py`; it requires R + `rpy2` + R package `smacof`.
 
 ## Minimal Execution
 
 From the repository root:
 
 ```bash
+python spatial_reconstruction.py
 python decision_matrix_builder.py
 python wowa_stability_analysis.py
 ```
+
+`decision_matrix_builder.py` expects spatial reconstruction files (`points_*.npy` and `points_keys_*.npy`) under `output/npy/`. If they are not already present, generate them first with `python spatial_reconstruction.py`.
 
 Main outputs are written under `output/`.
 
@@ -47,6 +51,7 @@ Main outputs are written under `output/`.
 
 - Schedule pool and instance: `data/Alternatives/X12/`
 - Solver runner and binaries: `data/Alternatives/Solvers/`
+  The repository uses the compiled solver binaries published by the competition teams in their public releases/repositories.
 - France map and locations data (parks + ski + map layers): `data/france_map_and_locations/`
 - Constraint/objective checker from ROADEF context: `RTE_ChallengeROADEF2020_checker.py`
 

@@ -22,7 +22,7 @@ Naming note:
   - `create_run_all_bat()`
   - `main()`
 - What it does:
-  - Builds a batch/shell execution harness for Team1, Team2, Team3 binaries.
+  - Builds a batch/shell execution harness for the compiled Team1, Team2, Team3 binaries published by the competition teams.
   - Runs each solver for `(time_limit in {180,300,500,700,900}) x (seed in {42,33,73})`.
   - Writes `sol*_t*_X_12_s*.txt` and organizes them by team folders.
 
@@ -43,6 +43,9 @@ Naming note:
 - File: `decision_matrix_builder.py`
 - Key function:
   - `build_raw_decision_matrix(...)`
+- Required inputs:
+  - schedule files under `data/Alternatives/X12/`
+  - spatial reconstruction files `points_*.npy` and `points_keys_*.npy` generated in Step 2
 - Uses:
   - `maintenance_scheduling_model.load_maintenance_instance_from_json(...)`
   - `maintenance_scheduling_model.MaintenanceSchedule(...).compute_raw_criteria(...)`
@@ -447,7 +450,6 @@ load instance JSON -> MaintenanceSchedulingInstance
 load all solution txt files -> MaintenanceSchedule objects
 
 load intervention points + keys
-compute region clusters (KMeans, optional auxiliary mapping)
 load park geometries and ski geometries
 compute fuzzy proximities:
     mu_ski(i), mu_park(i)
@@ -538,7 +540,7 @@ These are important for strict reproducibility claims.
   - projected dominance margins.
 
 3. Current decision matrix has 7 raw criteria.
-- Some comments in code still mention 8 metrics, but active matrix columns are 7 (`Reliability Stress`, `Robustness Slack`, `Ski Season Risk`, `Social Weekend Risk`, `Max Critical Overlap`, `Risk Volatility`, `Summer Eco-Stress`).
+- Active matrix columns are 7 (`Reliability Stress`, `Robustness Slack`, `Ski Season Risk`, `Social Weekend Risk`, `Max Critical Overlap`, `Risk Volatility`, `Summer Eco-Stress`).
 
 4. Current raw metrics are based on ski/park proximity memberships and the corrected 2025 calendar mapping.
 - The active pipeline uses `compute_ski_area_proximity_membership(...)` and `compute_park_proximity_membership(...)` for spatial context.
@@ -576,10 +578,10 @@ These are important for strict reproducibility claims.
 ## 7. Minimal Reproduction Commands
 
 ```bash
-# 1) (Optional) run external solver batch harness
+# 1) (Optional) run external solver batch harness for the compiled binaries
 python "data/Alternatives/Solvers/execute.py"
 
-# 2) Build or refresh spatial embedding
+# 2) Build or refresh spatial embedding (.npy files required by the decision-matrix builder)
 python spatial_reconstruction.py
 
 # 3) Build raw decision matrix

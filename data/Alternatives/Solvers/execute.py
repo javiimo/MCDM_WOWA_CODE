@@ -1,6 +1,9 @@
 # WARNING:
-# This code uses windows subsystem linux to run the solvers since they were built for debian 10. It shouldn't be difficult to adapt it to run just for regular linux. Paths would need to be adapted to run on a new computer.
-# The problem with wsl is that the hostid changes from time to time, so that is why we would need to frequently create new keys.
+# This helper launches the compiled binaries published by the competition teams.
+# It currently uses Windows Subsystem for Linux because those binaries were built
+# for Debian 10, and its paths are machine-specific.
+# The problem with WSL is that the hostid changes from time to time, so a new
+# Gurobi key may be needed on a different machine.
 
 import os
 import subprocess

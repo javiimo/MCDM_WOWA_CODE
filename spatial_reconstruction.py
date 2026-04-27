@@ -161,7 +161,7 @@ def compute_intervention_dissimilarity_matrix(instance, method="linear"):
 
 
 # -------------------------------
-# Non-metric MDS using scikit-learn
+# Non-metric MDS using R SMACOF via rpy2
 # -------------------------------
 def compute_weighted_mds_embedding(
     distance_matrix, weight_matrix, n_dimensions=2, random_state=42
@@ -290,7 +290,7 @@ def plot_spatial_reconstruction(
 
 
 # -------------------------------
-# Testing Function using Non-metric MDS (scikit-learn)
+# Testing function using R SMACOF via rpy2
 # -------------------------------
 def compare_reconstruction_methods(
     instance,
@@ -306,9 +306,9 @@ def compare_reconstruction_methods(
     For each configuration, the function computes:
       - The normalized correlation and distance matrices.
       - The weight matrix (absolute correlations).
-      - A non-metric MDS embedding using scikit-learn.
+      - A non-metric MDS embedding using R's `smacof` package through `rpy2`.
 
-    The stress is obtained directly from the scikit-learn MDS.
+    The stress is obtained directly from the SMACOF output.
 
     Parameters:
       - instance: Data instance with risk time series.
@@ -339,8 +339,8 @@ def compare_reconstruction_methods(
             print(f"\nDISTANCE MATRIX, method={d_method}):")
             print_matrix_statistics(dist_matrix)
 
-        # --- Non-metric MDS Embedding using scikit-learn ---
-        print(f"\nEmbedding method: Non-metric MDS (scikit-learn)")
+        # --- Non-metric MDS embedding using R SMACOF ---
+        print(f"\nEmbedding method: Non-metric MDS (R SMACOF via rpy2)")
         points, stress = compute_weighted_mds_embedding(
             distance_matrix=dist_matrix, weight_matrix=weight_matrix, n_dimensions=2
         )
@@ -358,7 +358,7 @@ def compare_reconstruction_methods(
         results.append(
             {
                 "distance_method": d_method,
-                "embedding": "Non-metric MDS (scikit-learn)",
+                "embedding": "Non-metric MDS (R SMACOF via rpy2)",
                 "stress": stress,
             }
         )
@@ -384,7 +384,7 @@ def compute_and_save_spatial_reconstruction(
     mat_stats=False,
 ):
     """
-    Compute non-metric MDS embedding for a given distance method, plot the embedding,
+    Compute a non-metric MDS embedding for a given distance method, plot the embedding,
     print matrix statistics and stress, and save the computed points to a file.
 
     Parameters:
@@ -413,8 +413,8 @@ def compute_and_save_spatial_reconstruction(
         print(f"\nDISTANCE MATRIX (method={distance_method}):")
         print_matrix_statistics(dist_matrix)
 
-    # --- Non-metric MDS Embedding using scikit-learn ---
-    print(f"\nEmbedding method: Non-metric MDS (scikit-learn)")
+    # --- Non-metric MDS embedding using R SMACOF ---
+    print(f"\nEmbedding method: Non-metric MDS (R SMACOF via rpy2)")
     points, stress = compute_weighted_mds_embedding(
         distance_matrix=dist_matrix, weight_matrix=weight_matrix, n_dimensions=2
     )
@@ -559,7 +559,7 @@ if __name__ == "__main__":
         # "sine"
     ]
 
-    # Run the testing function using non-metric MDS (scikit-learn)
+    # Run the testing function using non-metric MDS (R SMACOF via rpy2)
     results = compare_reconstruction_methods(
         instance, distance_methods, plot=True, top_n=5, mat_stats=True, draw_lines=False
     )

@@ -714,9 +714,7 @@ def load_maintenance_instance_from_json(
 ) -> MaintenanceSchedulingInstance:
     """
     Load a MaintenanceSchedulingInstance from a JSON-like dictionary.
-    This function populates the data classes and, upon completion, automatically
-    runs fuzzy c-means clustering for intervention 'size' and 'risk', storing
-    the membership dataframes in the instance object.
+    This function populates the core data classes used by the repository.
 
     Mapping Overview:
       "T"                ⟶ MaintenanceSchedulingInstance.T

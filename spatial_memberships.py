@@ -1,27 +1,14 @@
 from __future__ import annotations
 
-"""clustering_regions.py
+"""Spatial membership and visualization helpers for interventions in France.
 
-Clean‑room rewrite focused on **distance‑based fuzzy clustering** for French
-interventions.  Plotting and UI concerns have been removed so the module now
-contains **only data‑processing utilities** that can be imported or executed
-from the CLI.
+The active decision-matrix pipeline uses this module to:
+- load France, park, and ski-station geospatial data,
+- rescale the reconstructed intervention embedding to the France map,
+- compute distance-based proximity memberships for ski stations and parks.
 
-Key public helpers
-------------------
-- ``build_fuzzy_intervention_distance`` — pairwise intervention × intervention
-  fuzzy membership matrices.
-- ``build_fuzzy_intervention_park_distance`` — intervention × park fuzzy
-  membership matrices.
-
-Both helpers return a ``dict[str, pandas.DataFrame]`` where each key is a term
-name from the supplied :class:`fuzzy_sets.LinguisticVariable` (e.g. ``"close"``,
-``"mid"``…) and each value is a DataFrame of membership degrees ∈ [0, 1].
-
-The only external dependency beyond the scientific Python stack is
-``data/france_map_and_locations/`` (French regions polygons, parks and stations).
-For park-related utilities, ``pnr_polygon.csv`` must contain a WKT column
-``the_geom``.
+The module also keeps a few plotting helpers for exploratory inspection of the
+reconstructed geography and fuzzy-distance surfaces.
 """
 
 from pathlib import Path

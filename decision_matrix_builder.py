@@ -91,6 +91,10 @@ def build_raw_decision_matrix(
 ) -> pd.DataFrame:
     """
     Build the raw decision matrix for maintenance scheduling alternatives.
+
+    This step expects precomputed spatial reconstruction files (`points_*.npy`
+    and `points_keys_*.npy`) so that ski and park proximity memberships can be
+    evaluated for each intervention.
     """
     instance_path = Path(instance_path)
     embedding_points_path = Path(embedding_points_path)
