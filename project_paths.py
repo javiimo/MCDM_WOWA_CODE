@@ -7,9 +7,9 @@ REPO_ROOT = Path(__file__).resolve().parent
 
 DATA_DIR = REPO_ROOT / "data"
 ALTERNATIVES_DIR = DATA_DIR / "Alternatives"
-X12_DIR = ALTERNATIVES_DIR / "X12"
+X12_DIR = ALTERNATIVES_DIR / "X12_Original_Execution"
 SOLVERS_DIR = ALTERNATIVES_DIR / "Solvers"
-INSTANCE_PATH = X12_DIR / "X_12.json"
+INSTANCE_PATH = ALTERNATIVES_DIR / "downloaded" / "X_12.json"
 
 FRANCE_MAP_LOCATIONS_DIR = DATA_DIR / "france_map_and_locations"
 FRANCE_REGIONS_GEOJSON_PATH = FRANCE_MAP_LOCATIONS_DIR / "france.json"

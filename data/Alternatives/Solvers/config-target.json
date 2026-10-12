@@ -1,0 +1,28 @@
+{
+  "instances": {
+    "X03": "data/Alternatives/downloaded/X_03.json",
+    "X12": "data/Alternatives/downloaded/X_12.json",
+    "X13": "data/Alternatives/downloaded/X_13.json"
+  },
+  "alphas": [
+    0.25,
+    0.5,
+    0.75
+  ],
+  "seconds": [
+    300,
+    600,
+    900
+  ],
+  "seeds": [
+    33,
+    42,
+    73
+  ],
+  "solvers": [
+    "team1",
+    "team2",
+    "team3"
+  ],
+  "omp_num_threads": 4
+}

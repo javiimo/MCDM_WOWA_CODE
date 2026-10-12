@@ -44,7 +44,7 @@ Naming note:
 - Key function:
   - `build_raw_decision_matrix(...)`
 - Required inputs:
-  - schedule files under `data/Alternatives/X12/`
+  - schedule files under `data/Alternatives/X12_Original_Execution/`
   - spatial reconstruction files `points_*.npy` and `points_keys_*.npy` generated in Step 2
 - Uses:
   - `maintenance_scheduling_model.load_maintenance_instance_from_json(...)`
@@ -188,7 +188,7 @@ Classes and fields:
 ### Schedule pool generation from solver outputs
 - File: `data/Alternatives/Solvers/execute.py`
 - Produced files consumed by decision-matrix builder:
-  - `data/Alternatives/X12/Team*/sol*_t*_X_12_s*.txt`
+  - `data/Alternatives/X12_Original_Execution/Team*/sol*_t*_X_12_s*.txt`
 
 ### Schedule loading into `MaintenanceSchedule` objects
 - File: `decision_matrix_builder.py`
