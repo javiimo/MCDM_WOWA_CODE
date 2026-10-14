@@ -121,15 +121,15 @@ def plot_criteria(ax, props, is_wowa):
 
 # Izquierda: OWA
 plot_criteria(ax1, prop_owa, is_wowa=False)
-ax1.set_title(r"OWA ($w_i$ from uniform importance partition)", fontsize=24, pad=15)
-ax1.set_xlabel("Accumulated Importance", fontsize=18)
-ax1.set_ylabel("Quantifier Value, $Q(r)$", fontsize=18)
+ax1.set_title(r"OWA ($w_i$ from uniform weight partition)", fontsize=24, pad=15)
+ax1.set_xlabel("Accumulated Weight", fontsize=18)
+ax1.set_ylabel("Quantifier Value, $Q(t)$", fontsize=18)
 ax1.set_xlim(-0.02, 1.15)  # Match right plot limit
 
 # Derecha: wowa
 plot_criteria(ax2, prop_wowa, is_wowa=True)
-ax2.set_title(r"WOWA ($w_i$ from variable importance partition)", fontsize=24, pad=15)
-ax2.set_xlabel("Accumulated Importance", fontsize=18)
+ax2.set_title(r"WOWA ($w_i$ from variable weight partition)", fontsize=24, pad=15)
+ax2.set_xlabel("Accumulated Weight", fontsize=18)
 ax2.set_xlim(-0.02, 1.15)  # Límite cambiado a 1.15
 
 # Ajustes comunes
@@ -141,12 +141,12 @@ for ax in [ax1, ax2]:
 
 # --- Leyenda Personalizada ---
 legend_elements = [
-    Line2D([0], [0], color="gray", lw=3, alpha=0.5, label=r"Attitude $Q(x)=x^2$"),
+    Line2D([0], [0], color="gray", lw=3, alpha=0.5, label=r"Attitude ($Q(t)=t^2$)"),
     Patch(
         facecolor=purple_shades[2],
         edgecolor="none",
         alpha=0.6,
-        label="Importance (Width %)",
+        label="Weight (Width %)",
     ),
 ]
 
