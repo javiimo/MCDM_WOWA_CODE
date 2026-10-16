@@ -209,6 +209,47 @@ def compute_weighted_mds_embedding(
     return points, weighted_stress
 
 
+def compute_mds_embeddings_rscript(distance_matrix, weight_matrix, seeds, n_dimensions=2):
+    """
+    Same SMACOF call as compute_weighted_mds_embedding, run through Rscript for several
+    random initializations. The Rscript executable is taken from $RSCRIPT.
+    """
+    import os
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        np.savetxt(tmp / "delta.csv", distance_matrix, delimiter=",")
+        np.savetxt(tmp / "weight.csv", weight_matrix, delimiter=",")
+        seed_list = ",".join(str(seed) for seed in seeds)
+        r_code = f"""
+        suppressMessages(library(smacof))
+        delta <- as.dist(as.matrix(read.csv("{tmp}/delta.csv", header = FALSE)))
+        w <- as.matrix(read.csv("{tmp}/weight.csv", header = FALSE))
+        for (s in c({seed_list})) {{
+          set.seed(s)
+          res <- smacofSym(delta = delta, weightmat = w, ndim = {n_dimensions}, type = "ordinal",
+                           init = "random", itmax = 500, modulus = 1)
+          write.table(res$conf, sprintf("{tmp}/conf_%d.csv", s), sep = ",", row.names = FALSE, col.names = FALSE)
+          write(c(res$stress, res$niter), sprintf("{tmp}/stress_%d.txt", s))
+        }}
+        """
+        subprocess.run([os.environ.get("RSCRIPT", "Rscript"), "-e", r_code], check=True)
+        results = []
+        for seed in seeds:
+            stress, n_iter = (float(v) for v in (tmp / f"stress_{seed}.txt").read_text().split())
+            results.append((np.loadtxt(tmp / f"conf_{seed}.csv", delimiter=","), stress, int(n_iter)))
+        return results
+
+
+def dissimilarity_and_weights(instance, distance_method="linear"):
+    keys, corr_matrix = compute_sign_concordance_matrix(instance)
+    weight_matrix = np.where(corr_matrix <= 0, 0, corr_matrix)
+    _, dist_matrix = compute_intervention_dissimilarity_matrix(instance, method=distance_method)
+    return keys, dist_matrix, weight_matrix
+
+
 # -------------------------------
 # Plotting Function with Integrated Draw Lines and Network Stats
 # -------------------------------

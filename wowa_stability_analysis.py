@@ -3,7 +3,9 @@ WOWA stability analysis implementation.
 """
 
 import os
-from typing import cast
+from fractions import Fraction
+from itertools import combinations
+from math import factorial, log
 
 import gurobipy as gp
 import numpy as np
@@ -13,6 +15,9 @@ from gurobipy import GRB
 from project_paths import (
     NORMALIZED_DECISION_MATRIX_CSV_PATH,
     RAW_DECISION_MATRIX_CSV_PATH,
+    WOWA_CHOICE_SET_SIZE_CSV_PATH,
+    WOWA_GRID_SUMMARY_CSV_PATH,
+    WOWA_STABILITY_RESULTS_CSV_PATH,
     WOWA_STABILITY_SCENARIOS_CSV_PATH,
     ensure_output_tree,
 )
@@ -33,9 +38,45 @@ def projected_simplex_norm(vec):
     return float(np.linalg.norm(project_to_simplex_hyperplane(vec)))
 
 
+def margin_coefficient(vec, norm="L2"):
+    """
+    Margin coefficient kappa(n) = max{n^T d : 1^T d = 0, ||d|| <= 1}.
+    """
+    arr = np.asarray(vec, dtype=float)
+    if norm == "L2":
+        return projected_simplex_norm(arr)
+    if norm == "L1":
+        return float((arr.max() - arr.min()) / 2.0)
+    if norm == "capacity":
+        return float(np.abs(np.diff(arr)).sum())
+    raise ValueError(f"Unknown norm {norm}")
+
+
+def normalized_entropy(vec):
+    arr = np.asarray(vec, dtype=float)
+    arr = arr[arr > 1e-12]
+    if len(vec) <= 1:
+        return 0.0
+    return float(-(arr * np.log(arr)).sum() / log(len(vec)))
+
+
+def shapley_bounds_around_weights(criterion_importances, tolerance=0.1):
+    """
+    Shapley importance bounds centred on the weighting vector, clipped to [0, 1].
+    """
+    return {
+        col: (max(0.0, p - tolerance), min(1.0, p + tolerance))
+        for col, p in criterion_importances.items()
+    }
+
+
 class WOWAStabilityAnalyzer:
     def __init__(
-        self, raw_decision_matrix_path, criterion_importances, verbose: bool = False
+        self,
+        raw_decision_matrix_path,
+        criterion_importances,
+        verbose: bool = False,
+        complete_grid: bool = True,
     ):
         self.raw_decision_matrix_path = raw_decision_matrix_path
         self.criterion_importances = criterion_importances
@@ -46,6 +87,8 @@ class WOWAStabilityAnalyzer:
         self.unified_importance_grid: list[float] | None = None
         self.orness_coefficients: np.ndarray | None = None
         self.alternatives: list[str] | None = None
+        self.complete_grid = complete_grid
+        self.shapley_matrix: np.ndarray | None = None
 
         self.load_and_normalize_decision_matrix()
 
@@ -57,7 +100,7 @@ class WOWAStabilityAnalyzer:
 
         directions = {
             "Reliability Stress": False,
-            "Robustness Slack": True,
+            "Resource Slack": True,
             "Ski Season Risk": False,
             "Social Weekend Risk": False,
             "Max Critical Overlap": False,
@@ -77,7 +120,7 @@ class WOWAStabilityAnalyzer:
             min_val = df_raw[col].min()
 
             if max_val == 0:
-                self.normalized_decision_matrix[col] = 0.0 if is_max else 1.0
+                self.normalized_decision_matrix[col] = 1.0
                 continue
 
             if is_max:
@@ -88,7 +131,7 @@ class WOWAStabilityAnalyzer:
                 )
 
         normalized_criteria_matrix = self.normalized_decision_matrix.loc[
-            :, list(directions.keys())
+            :, [col for col in directions if col in self.criterion_importances]
         ]
         self.normalized_criteria_matrix = pd.DataFrame(normalized_criteria_matrix)
 
@@ -96,6 +139,10 @@ class WOWAStabilityAnalyzer:
         """
         Build the unified grid Omega from all alternatives' priority breakpoints.
         """
+        if self.complete_grid:
+            self.build_complete_weight_grid()
+            return
+
         breakpoints = set([0.0, 1.0])
 
         if self.normalized_criteria_matrix is None:
@@ -114,9 +161,93 @@ class WOWAStabilityAnalyzer:
             row_values = vals[i]
             sort_idx = np.argsort(-row_values)
             cum_i = np.cumsum(criterion_importances[sort_idx])
-            breakpoints.update(cum_i)
+            breakpoints.update(np.round(cum_i, 10))
 
         self.unified_importance_grid = sorted(list(breakpoints))
+
+    def _exact_weights(self):
+        if self.normalized_criteria_matrix is None:
+            raise RuntimeError("Normalized criteria matrix is not available.")
+        return [
+            Fraction(str(round(self.criterion_importances[col], 10)))
+            for col in self.normalized_criteria_matrix.columns
+        ]
+
+    def build_complete_weight_grid(self):
+        """
+        Build the complete grid of distinct subset weights p(B), with exact arithmetic.
+        """
+        weights = self._exact_weights()
+        n_criteria = len(weights)
+        self.subset_weights = {
+            subset: sum((weights[j] for j in subset), Fraction(0))
+            for size in range(n_criteria + 1)
+            for subset in combinations(range(n_criteria), size)
+        }
+        grid = sorted(set(self.subset_weights.values()))
+        self.grid_index = {value: k for k, value in enumerate(grid)}
+        self.unified_importance_grid = [float(value) for value in grid]
+
+    def build_wowa_coefficients(self):
+        """
+        Orness coefficients o (Marichal) and Shapley matrix G on the complete grid.
+        """
+        weights = self._exact_weights()
+        n_criteria = len(weights)
+        k_segments = len(self.grid_index) - 1
+        orness = np.zeros(k_segments)
+        shapley = np.zeros((n_criteria, k_segments))
+        for subset, weight in self.subset_weights.items():
+            size = len(subset)
+            k_subset = self.grid_index[weight]
+            if size < n_criteria:
+                coef = factorial(n_criteria - size) * factorial(size) / factorial(
+                    n_criteria
+                )
+                orness[:k_subset] += coef / (n_criteria - 1)
+                coef = factorial(size) * factorial(n_criteria - size - 1) / factorial(
+                    n_criteria
+                )
+                for j in set(range(n_criteria)) - set(subset):
+                    k_union = self.grid_index[weight + weights[j]]
+                    shapley[j, k_subset:k_union] += coef
+        self.orness_coefficients = orness
+        self.shapley_matrix = shapley
+
+    def check_wowa_identities(self, tol=1e-9):
+        """
+        Numerical checks of the unified representation, Shapley and orness formulas.
+        """
+        if self.transformed_alternative_matrix is None:
+            self.build_transformed_alternative_matrix()
+        grid = np.array(self.unified_importance_grid)
+        weights = np.array([float(w) for w in self._exact_weights()])
+        w_lin = np.diff(grid)
+        orness, shapley = self.orness_coefficients, self.shapley_matrix
+        assert np.allclose(shapley.sum(axis=0), 1.0, atol=tol)
+        assert np.allclose(shapley @ w_lin, weights, atol=tol)
+        assert abs(orness @ w_lin - 0.5) < tol and abs(orness[0] - 1) < tol
+        vals = self.normalized_criteria_matrix.to_numpy(dtype=float)
+        for exponent in (0.5, 2.0):
+            w_q = np.diff(grid**exponent)
+            for i, row in enumerate(vals):
+                idx = np.argsort(-row)
+                cum = np.concatenate([[0.0], np.cumsum(weights[idx])])
+                direct = np.diff(cum**exponent) @ row[idx]
+                assert abs(direct - w_q @ self.transformed_alternative_matrix[i]) < 1e-7
+        rng = np.random.default_rng(0)
+        w_rand = rng.dirichlet(np.ones(len(w_lin)))
+        cum_w = np.concatenate([[0.0], np.cumsum(w_rand)])
+        capacity = {s: cum_w[self.grid_index[v]] for s, v in self.subset_weights.items()}
+        n = len(weights)
+        for j in range(n):
+            phi = sum(
+                factorial(len(s)) * factorial(n - len(s) - 1) / factorial(n)
+                * (capacity[tuple(sorted(s + (j,)))] - capacity[s])
+                for s in capacity
+                if j not in s
+            )
+            assert abs(phi - shapley[j] @ w_rand) < tol
 
     def build_transformed_alternative_matrix(self):
         """
@@ -142,7 +273,9 @@ class WOWAStabilityAnalyzer:
         )
 
         self.transformed_alternative_matrix = np.zeros((n_alts, k_segments))
-        if k_segments <= 1:
+        if self.complete_grid:
+            self.build_wowa_coefficients()
+        elif k_segments <= 1:
             self.orness_coefficients = np.array([0.0] * k_segments, dtype=float)
         else:
             self.orness_coefficients = np.array(
@@ -179,7 +312,83 @@ class WOWAStabilityAnalyzer:
         self.transformed_alternative_matrix = transformed_matrix
         self.orness_coefficients = orness_coefficients
 
-    def solve_stability_radius_lp(self, alpha_min=0.0, alpha_max=0.4):
+    @staticmethod
+    def _add_margin(model, rho, margins, expr, rhs, kind, label, kappa):
+        constr = model.addConstr(expr - kappa * rho >= rhs, f"{kind}_{label}")
+        margins.append((constr, kind, label, kappa))
+
+    def _build_ball_model(self, alpha_min, alpha_max, shapley_bounds, norm):
+        """
+        Ball of radius rho inside the admissible set (simplex, orness, Shapley bounds).
+        Margin-free versions are implied by rho >= 0 and are therefore omitted.
+        """
+        if self.transformed_alternative_matrix is None:
+            self.build_transformed_alternative_matrix()
+        k_segments = self.transformed_alternative_matrix.shape[1]
+        model = gp.Model("Stability")
+        model.setParam("OutputFlag", 0)
+        model.setParam("DualReductions", 0)
+        w = model.addVars(k_segments, lb=0.0, name="w")
+        rho = model.addVar(lb=0.0, name="rho")
+        model.addConstr(w.sum() == 1.0, "SumWeights")
+        margins = []
+        eye = np.eye(k_segments)
+        for k in range(k_segments):
+            kappa = margin_coefficient(eye[k], norm)
+            self._add_margin(model, rho, margins, w[k], 0.0, "simplex", k, kappa)
+
+        def add_bounds(coefs, low, high, kind, label):
+            expr = gp.quicksum(coefs[k] * w[k] for k in range(k_segments))
+            kappa = margin_coefficient(coefs, norm)
+            if low > 0.0:
+                self._add_margin(model, rho, margins, expr, low, kind, f"{label}min", kappa)
+            if high < 1.0:
+                self._add_margin(model, rho, margins, -expr, -high, kind, f"{label}max", kappa)
+
+        add_bounds(self.orness_coefficients, alpha_min, alpha_max, "orness", "")
+        for j, col in enumerate(self.normalized_criteria_matrix.columns):
+            if shapley_bounds and col in shapley_bounds:
+                low, high = shapley_bounds[col]
+                add_bounds(self.shapley_matrix[j], low, high, "shapley", f"{col}_")
+        return model, w, rho, margins
+
+    def reference_radius(self, alpha_min, alpha_max, shapley_bounds=None, norm="L2"):
+        """
+        Radius of the largest ball in the admissible set, without dominance constraints.
+        """
+        model, _, rho, _ = self._build_ball_model(alpha_min, alpha_max, shapley_bounds, norm)
+        model.setObjective(rho, GRB.MAXIMIZE)
+        model.optimize()
+        return model.ObjVal if model.status == GRB.OPTIMAL else np.nan
+
+    def is_uniform_winner(
+        self, i_cand, alpha_min, alpha_max, shapley_bounds=None, choice_set=None
+    ):
+        """
+        Check whether alternative i_cand is optimal for every admissible W.
+        """
+        z = self.transformed_alternative_matrix
+        model, w, rho, _ = self._build_ball_model(alpha_min, alpha_max, shapley_bounds, "L2")
+        rho.ub = 0.0
+        for i_riv in range(len(z)) if choice_set is None else choice_set:
+            if i_riv == i_cand:
+                continue
+            diff = z[i_cand] - z[i_riv]
+            model.setObjective(gp.quicksum(diff[k] * w[k] for k in range(len(diff))))
+            model.optimize()
+            if model.status != GRB.OPTIMAL or model.ObjVal < -1e-9:
+                return False
+        return True
+
+    def solve_stability_radius_lp(
+        self,
+        alpha_min=0.0,
+        alpha_max=0.4,
+        shapley_bounds=None,
+        norm="L2",
+        choice_set=None,
+        details=True,
+    ):
         """
         Solve the LP for each alternative and return stability radii.
         """
@@ -188,87 +397,86 @@ class WOWAStabilityAnalyzer:
         if self.transformed_alternative_matrix is None or self.alternatives is None:
             raise RuntimeError("Stability analysis data is not available.")
 
-        transformed_matrix = self.transformed_alternative_matrix
+        z = self.transformed_alternative_matrix
         alternatives = self.alternatives
-        n_alts, k_segments = transformed_matrix.shape
+        orness, shapley = self.orness_coefficients, self.shapley_matrix
+        criteria = list(self.normalized_criteria_matrix.columns)
+        indices = range(len(z)) if choice_set is None else list(choice_set)
         results = []
-        face_margin = (
-            projected_simplex_norm(np.eye(k_segments)[0]) if k_segments > 0 else 0.0
-        )
-        nu = (
-            self.orness_coefficients
-            if self.orness_coefficients is not None
-            else np.zeros(k_segments)
-        )
-        nu_margin = projected_simplex_norm(nu) if k_segments > 0 else 0.0
 
-        if self.verbose:
-            print(f"Solving robustness optimization for {n_alts} alternatives...")
-
-        for i_cand in range(n_alts):
-            model = gp.Model("Stability")
-            model.setParam("OutputFlag", 0)
-
-            w = model.addVars(k_segments, lb=0.0, ub=1.0, name="w")
-            rho = model.addVar(lb=0.0, name="rho")
-
-            model.addConstr(
-                gp.quicksum(w[k] for k in range(k_segments)) == 1.0, "SumWeights"
+        for i_cand in indices:
+            model, w, rho, margins = self._build_ball_model(
+                alpha_min, alpha_max, shapley_bounds, norm
             )
-
-            orness_expr = gp.quicksum(w[k] * nu[k] for k in range(k_segments))
-            model.addConstr(orness_expr >= alpha_min, "OrnessMin")
-            model.addConstr(orness_expr <= alpha_max, "OrnessMax")
-
-            if nu_margin > 0.0:
-                model.addConstr(
-                    orness_expr - alpha_min >= rho * nu_margin,
-                    "OrnessMinMargin",
-                )
-                model.addConstr(
-                    alpha_max - orness_expr >= rho * nu_margin,
-                    "OrnessMaxMargin",
-                )
-
-            for k in range(k_segments):
-                model.addConstr(w[k] >= rho * face_margin, f"FaceMargin_{k}")
-
-            vec_cand = transformed_matrix[i_cand]
-            for i_riv in range(n_alts):
+            for i_riv in indices:
                 if i_riv == i_cand:
                     continue
-                vec_riv = transformed_matrix[i_riv]
-                diff = vec_cand - vec_riv
-                dist = projected_simplex_norm(diff)
-                model.addConstr(
-                    gp.quicksum(w[k] * diff[k] for k in range(k_segments))
-                    >= rho * dist,
-                    f"Dom_{i_riv}",
+                diff = z[i_cand] - z[i_riv]
+                expr = gp.quicksum(diff[k] * w[k] for k in range(len(diff)))
+                kappa = margin_coefficient(diff, norm)
+                self._add_margin(
+                    model, rho, margins, expr, 0.0, "dominance", alternatives[i_riv], kappa
                 )
-
             model.setObjective(rho, GRB.MAXIMIZE)
             model.optimize()
 
-            if model.status == GRB.OPTIMAL:
-                opt_w = [w[k].X for k in range(k_segments)]
-                opt_orness = sum(opt_w[k] * nu[k] for k in range(k_segments))
-                results.append(
-                    {
-                        "Alternative": alternatives[i_cand],
-                        "Rho": model.ObjVal,
-                        "Optimized_Orness": opt_orness,
-                        "Is_Stable": model.ObjVal > 1e-5,
-                    }
-                )
-            else:
-                results.append(
-                    {
-                        "Alternative": alternatives[i_cand],
-                        "Rho": 0.0,
-                        "Optimized_Orness": 0.0,
-                        "Is_Stable": False,
-                    }
-                )
+            row = {"Alternative": alternatives[i_cand]}
+            if model.status != GRB.OPTIMAL:
+                row.update({"Rho": 0.0, "Status": "infeasible", "Is_Stable": False})
+                results.append(row)
+                continue
+
+            center = np.array([w[k].X for k in range(len(w))])
+            rho_val = model.ObjVal
+            row.update(
+                {
+                    "Rho": rho_val,
+                    "Status": "positive" if rho_val > 1e-9 else "zero",
+                    "Is_Stable": rho_val > 1e-5,
+                    "Optimized_Orness": float(orness @ center),
+                }
+            )
+            if not details:
+                results.append(row)
+                continue
+
+            phi = shapley @ center
+            row.update({f"Shapley_{c}": phi[j] for j, c in enumerate(criteria)})
+            row.update(
+                {
+                    "Entropy": normalized_entropy(center),
+                    "Shapley_Entropy": normalized_entropy(phi),
+                    "Center": " ".join(f"{v:.6f}" for v in center),
+                    "Num_Constraints": model.NumConstrs,
+                    "Solve_Time": model.Runtime,
+                }
+            )
+            if rho_val > 1e-9:
+                shares = {}
+                rival, rival_share = None, 0.0
+                for constr, kind, label, kappa in margins:
+                    share = abs(constr.Pi) * kappa
+                    shares[kind] = shares.get(kind, 0.0) + share
+                    if kind == "dominance" and share > rival_share:
+                        rival, rival_share = label, share
+                row.update({f"Share_{k}": shares.get(k, 0.0) for k in
+                            ("dominance", "orness", "shapley", "simplex")})
+                row["Binding"] = max(shares, key=shares.get)
+                row["Rival"] = rival
+                if rival is not None and norm in ("L2", "L1"):
+                    n_vec = z[i_cand] - z[alternatives.index(rival)]
+                    if norm == "L2":
+                        d = -project_to_simplex_hyperplane(n_vec)
+                        d /= np.linalg.norm(d)
+                    else:
+                        d = np.zeros(len(n_vec))
+                        d[np.argmin(n_vec)] += 0.5
+                        d[np.argmax(n_vec)] -= 0.5
+                    row["Tie_Orness_Shift"] = rho_val * float(orness @ d)
+                    row.update(
+                        {f"Tie_Shift_{c}": rho_val * v for c, v in zip(criteria, shapley @ d)}
+                    )
+            results.append(row)
 
         return pd.DataFrame(results)
 
@@ -279,7 +487,7 @@ def build_default_importance_scenarios():
             "Reliability Stress": 0.10,
             "Max Critical Overlap": 0.25,
             "Risk Volatility": 0.10,
-            "Robustness Slack": 0.20,
+            "Resource Slack": 0.20,
             "Ski Season Risk": 0.10,
             "Summer Eco-Stress": 0.10,
             "Social Weekend Risk": 0.15,
@@ -289,11 +497,53 @@ def build_default_importance_scenarios():
             "Summer Eco-Stress": 0.25,
             "Ski Season Risk": 0.10,
             "Reliability Stress": 0.20,
-            "Robustness Slack": 0.15,
+            "Resource Slack": 0.15,
             "Max Critical Overlap": 0.05,
             "Risk Volatility": 0.10,
         },
     }
+
+
+PROFILES = [
+    ("Risk_Averse", 0.00, 0.35),
+    ("Neutral", 0.35, 0.65),
+    ("Optimistic", 0.65, 1.00),
+    ("Full_Spectrum", 0.0, 1.0),
+]
+
+# (setting name, norm, Shapley tolerance around p); the first one is the main setting.
+SETTINGS = [
+    ("Main", "L2", 0.1),
+    ("Free_Shapley", "L2", None),
+    ("Shapley_0.05", "L2", 0.05),
+    ("Shapley_0.01", "L2", 0.01),
+    ("L1", "L1", 0.1),
+    ("Capacity", "capacity", 0.1),
+]
+
+
+def run_choice_set_size_experiment(
+    analyzer, scenario_name, shapley_bounds, sizes=(5, 10, 15, 20, 25), n_perm=100
+):
+    """
+    Nested random choice sets with fixed grid and normalization (main setting).
+    """
+    rng = np.random.default_rng(0)
+    n_alts = len(analyzer.alternatives)
+    rows = []
+    for perm in range(n_perm):
+        order = rng.permutation(n_alts)
+        for size in (*sizes, n_alts):
+            if size == n_alts and perm > 0:
+                continue
+            for profile_name, a_min, a_max in PROFILES:
+                df = analyzer.solve_stability_radius_lp(
+                    a_min, a_max, shapley_bounds, "L2", order[:size], details=False
+                )
+                df["Scenario"], df["Profile"] = scenario_name, profile_name
+                df["Permutation"], df["N"] = perm, size
+                rows.append(df[["Scenario", "Profile", "Permutation", "N", "Alternative", "Rho"]])
+    return pd.concat(rows, ignore_index=True)
 
 
 def main() -> None:
@@ -305,78 +555,74 @@ def main() -> None:
         return
 
     scenarios = build_default_importance_scenarios()
-    profiles = [
-        ("Risk_Averse", 0.00, 0.35),
-        ("Neutral", 0.35, 0.65),
-        ("Optimistic", 0.65, 1.00),
-        ("Full_Spectrum", 0.0, 1.0),
-    ]
-
     print(f"Running WOWA stability analysis from {raw_decision_matrix_path}")
-    final_summary_dfs = []
-    normalized_matrix_written = False
+    all_results, winners, grid_rows, size_rows = [], [], [], []
 
     for scenario_name, criterion_importances in scenarios.items():
-        total_imp = sum(criterion_importances.values())
-        if abs(total_imp - 1.0) > 1e-6:
-            criterion_importances = {
-                key: value / total_imp for key, value in criterion_importances.items()
-            }
-
         print(f"Scenario: {scenario_name}")
-        try:
-            stability_analyzer = WOWAStabilityAnalyzer(
-                str(raw_decision_matrix_path),
-                criterion_importances,
-                verbose=False,
-            )
+        start = pd.Timestamp.now()
+        analyzer = WOWAStabilityAnalyzer(str(raw_decision_matrix_path), criterion_importances)
+        analyzer.build_transformed_alternative_matrix()
+        build_seconds = (pd.Timestamp.now() - start).total_seconds()
+        analyzer.check_wowa_identities()
+        analyzer.normalized_decision_matrix.to_csv(
+            NORMALIZED_DECISION_MATRIX_CSV_PATH, index=False
+        )
+        bounds = shapley_bounds_around_weights(criterion_importances)
+        minimal = WOWAStabilityAnalyzer(
+            str(raw_decision_matrix_path), criterion_importances, complete_grid=False
+        )
+        minimal.build_unified_importance_grid()
 
-            if not normalized_matrix_written:
-                if stability_analyzer.normalized_decision_matrix is None:
-                    raise RuntimeError("Normalized decision matrix is not available.")
-                normalized_matrix = stability_analyzer.normalized_decision_matrix
-                normalized_matrix.to_csv(
-                    NORMALIZED_DECISION_MATRIX_CSV_PATH,
-                    index=False,
+        for setting_name, norm, tolerance in SETTINGS:
+            setting_bounds = (
+                None if tolerance is None
+                else shapley_bounds_around_weights(criterion_importances, tolerance)
+            )
+            for profile_name, a_min, a_max in PROFILES:
+                df = analyzer.solve_stability_radius_lp(a_min, a_max, setting_bounds, norm)
+                df = df.sort_values("Rho", ascending=False, ignore_index=True)
+                rho_ref = analyzer.reference_radius(a_min, a_max, setting_bounds, norm)
+                df["Rho_P"], df["Rho_Rel"] = rho_ref, df["Rho"] / rho_ref
+                df["Scenario"], df["Profile"], df["Setting"] = (
+                    scenario_name, profile_name, setting_name
                 )
-                normalized_matrix_written = True
+                df["Orness_Interval"] = f"[{a_min}, {a_max}]"
+                all_results.append(df)
+                if setting_name == "Main":
+                    win = df.iloc[0].copy()
+                    win["Second"], win["Rho_Second"] = df.iloc[1]["Alternative"], df.iloc[1]["Rho"]
+                    win["Relative_Gap"] = (win["Rho"] - win["Rho_Second"]) / win["Rho"]
+                    win["Uniform_Winner"] = analyzer.is_uniform_winner(
+                        analyzer.alternatives.index(win["Alternative"]),
+                        a_min, a_max, setting_bounds,
+                    )
+                    winners.append(win)
+                    print(f"  {profile_name}: {win['Alternative']} rho={win['Rho']:.4f}")
 
-            all_results = []
-            for profile_name, a_min, a_max in profiles:
-                df_res = stability_analyzer.solve_stability_radius_lp(
-                    alpha_min=a_min,
-                    alpha_max=a_max,
-                )
-                df_res["Profile"] = profile_name
-                df_res["Orness_Interval"] = f"[{a_min}, {a_max}]"
-                df_res["Scenario"] = scenario_name
-                all_results.append(df_res.sort_values("Rho", ascending=False))
+        main_df = pd.concat([d for d in all_results if d["Setting"].iloc[0] == "Main"
+                             and d["Scenario"].iloc[0] == scenario_name])
+        grid_rows.append(
+            {
+                "Scenario": scenario_name,
+                "M": len(criterion_importances),
+                "N": len(analyzer.alternatives),
+                "K_minimal": len(minimal.unified_importance_grid) - 1,
+                "K_complete": len(analyzer.unified_importance_grid) - 1,
+                "Build_Seconds": build_seconds,
+                "Constraints": main_df["Num_Constraints"].max(),
+                "Mean_LP_Seconds": main_df["Solve_Time"].mean(),
+                "Total_LP_Seconds": main_df["Solve_Time"].sum(),
+            }
+        )
+        size_rows.append(run_choice_set_size_experiment(analyzer, scenario_name, bounds))
 
-            scenario_df = pd.concat(all_results, ignore_index=True)
-            winners = scenario_df.groupby("Profile").first().reset_index()
-            profile_order = {p[0]: i for i, p in enumerate(profiles)}
-            winners["order"] = winners["Profile"].map(
-                lambda profile: profile_order[str(profile)]
-            )
-            winners = winners.sort_values("order").drop("order", axis=1)
-
-            print(
-                winners[
-                    ["Profile", "Alternative", "Rho", "Optimized_Orness"]
-                ].to_markdown(index=False, floatfmt=".4f")
-            )
-            final_summary_dfs.append(winners)
-
-        except gp.GurobiError as e:
-            print(f"Gurobi error in {scenario_name}: {e}")
-        except Exception as e:
-            print(f"Error in {scenario_name}: {e}")
-
-    if final_summary_dfs:
-        global_df = pd.concat(final_summary_dfs, ignore_index=True)
-        global_df.to_csv(WOWA_STABILITY_SCENARIOS_CSV_PATH, index=False)
-        print(f"Saved scenario comparison: {WOWA_STABILITY_SCENARIOS_CSV_PATH}")
-        print(f"Saved normalized matrix: {NORMALIZED_DECISION_MATRIX_CSV_PATH}")
+    pd.concat(all_results, ignore_index=True).to_csv(WOWA_STABILITY_RESULTS_CSV_PATH, index=False)
+    pd.DataFrame(winners).to_csv(WOWA_STABILITY_SCENARIOS_CSV_PATH, index=False)
+    pd.DataFrame(grid_rows).to_csv(WOWA_GRID_SUMMARY_CSV_PATH, index=False)
+    pd.concat(size_rows, ignore_index=True).to_csv(WOWA_CHOICE_SET_SIZE_CSV_PATH, index=False)
+    print(f"Saved results: {WOWA_STABILITY_RESULTS_CSV_PATH}")
+    print(f"Saved scenario comparison: {WOWA_STABILITY_SCENARIOS_CSV_PATH}")
 
 
 if __name__ == "__main__":

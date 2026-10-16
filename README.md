@@ -21,6 +21,10 @@ Detailed paper-to-code traceability is documented in [explanation.md](explanatio
 - `output/`: generated artifacts (`csv/`, `md/`, `tex/`, `figures/`, `npy/`, `reports/`, `logs/`).
 - `archive/`: exploratory or historical material kept for reference.
 - `plots_and_tables/export_normalized_decision_matrix_to_latex.py`: helper script to export the normalized WOWA matrix to LaTeX.
+- `plots_and_tables/plot_stability_results.py`: tables and figures of the stability analysis (run after `wowa_stability_analysis.py`).
+- `decision_matrix_builder.py --extension [X03 X12 X13]`: raw criteria of the alpha/instance runs in `data/Alternatives/Results` (needs `RSCRIPT` pointing to an R with `smacof` for new instances).
+- `wowa_extension_analysis.py`: stability-based selection on the extended candidate sets.
+- `mds_stability_analysis.py`: stability of the spatial reconstruction across MDS initializations and its effect on the selection (needs `RSCRIPT`).
 
 ## Installation
 

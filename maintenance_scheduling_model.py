@@ -60,11 +60,43 @@ def trim_list(lst: List[Any]) -> str:
 ######################################################
 
 
+# Seasonal blocks (t_start, t_end, D_min, D_max): winter, interseason, summer,
+# interseason, winter. Defaults correspond to X12; see configure_season_blocks.
+SEASON_BLOCKS = [
+    (1, 40, 1, 59),
+    (41, 57, 60, 120),
+    (58, 104, 121, 243),
+    (105, 114, 244, 304),
+    (115, 131, 305, 365),
+]
+BLOCK_DAY_RANGES = [(1, 59), (60, 120), (121, 243), (244, 304), (305, 365)]
+
+
+def configure_season_blocks(seasons: Dict[str, List[Any]]) -> None:
+    """
+    Derive the seasonal blocks of an instance from its "Seasons" field, assuming the
+    ROADEF order winter, interseason, summer, interseason, winter.
+    """
+    labels = {int(t): name for name, periods in seasons.items() for t in periods}
+    runs = []
+    for t in sorted(labels):
+        if runs and labels[t] == runs[-1][2] and t == runs[-1][1] + 1:
+            runs[-1][1] = t
+        else:
+            runs.append([t, t, labels[t]])
+    if len(runs) != len(BLOCK_DAY_RANGES):
+        raise ValueError(f"Unexpected season structure: {runs}")
+    SEASON_BLOCKS[:] = [
+        (start, end, d_min, d_max)
+        for (start, end, _), (d_min, d_max) in zip(runs, BLOCK_DAY_RANGES)
+    ]
+
+
 def timestep_to_day_interval(t: int) -> Tuple[int, int]:
     """
-    Map a timestep (1..131) to a closed day-of-year interval [D_start, D_end] (1..365).
+    Map a timestep to a closed day-of-year interval [D_start, D_end] (1..365).
 
-    Season convention (same as original piecewise mapping):
+    Season convention (X12 default, see SEASON_BLOCKS):
         1–40    : winter       (January–February)
         41–57   : interseason1 (March–April)
         58–104  : summer       (May–August)
@@ -75,35 +107,22 @@ def timestep_to_day_interval(t: int) -> Tuple[int, int]:
     intervals, one per timestep in that block. Interval lengths may differ
     by at most 1 day within a block.
     """
-    if not 1 <= t <= 131:
-        raise ValueError("t must be between 1 and 131")
-
-    # Choose the block of months and its day-of-year range
-    if 1 <= t <= 40:
-        # Winter 1: 1 January (1) – 28 February (59)
-        D_min, D_max = 1, 59
-        t_start, t_end = 1, 40
-    elif 41 <= t <= 57:
-        # Interseason 1: 1 March (60) – 30 April (120)
-        D_min, D_max = 60, 120
-        t_start, t_end = 41, 57
-    elif 58 <= t <= 104:
-        # Summer: 1 May (121) – 31 August (243)
-        D_min, D_max = 121, 243
-        t_start, t_end = 58, 104
-    elif 105 <= t <= 114:
-        # Interseason 2: 1 September (244) – 31 October (304)
-        D_min, D_max = 244, 304
-        t_start, t_end = 105, 114
-    else:  # 115–131
-        # Winter 2: 1 November (305) – 31 December (365)
-        D_min, D_max = 305, 365
-        t_start, t_end = 115, 131
+    for t_start, t_end, D_min, D_max in SEASON_BLOCKS:
+        if t_start <= t <= t_end:
+            break
+    else:
+        raise ValueError(f"t={t} outside the planning horizon")
 
     # Number of timesteps in this seasonal block
     N = t_end - t_start + 1
     # Total number of calendar days in this block (inclusive)
     total_days = D_max - D_min + 1
+
+    if N > total_days:
+        # More timesteps than days (e.g. X13): contiguous fractional intervals,
+        # mapped to the days they intersect.
+        idx = t - t_start
+        return D_min + idx * total_days // N, D_min + ((idx + 1) * total_days - 1) // N
 
     # Base length of each timestep interval (integer division)
     base_len = total_days // N
@@ -782,6 +801,8 @@ def load_maintenance_instance_from_json(
         except Exception as e:
             logger.error(f"Error loading season '{season_name}': {e}", exc_info=True)
             continue
+    if json_data.get("Seasons"):
+        configure_season_blocks(json_data["Seasons"])
     if verbose:
         print("Finished loading seasons.")
 
@@ -930,10 +951,11 @@ class MaintenanceSchedule:
         self.intervention_start_times = {}
         try:
             with open(solution_path, "r") as f:
-                next(f)
                 for line in f:
-                    if line.strip():
-                        intervention, start_time = line.strip().split()
+                    fields = line.split()
+                    # Solution files have no header: every "name start" line is kept.
+                    if len(fields) == 2 and fields[1].isdigit():
+                        intervention, start_time = fields
                         intervention = intervention.replace("Intervention_", "I")
                         self.intervention_start_times[intervention] = int(start_time)
         except Exception as e:
@@ -1177,9 +1199,9 @@ class MaintenanceSchedule:
             safety_threshold = 0.0
         reliability_stress = np.sum(np.maximum(0, risk_profile - safety_threshold))
 
-        # 2. Robustness_Slack: Minimum annual margin (bottleneck)
+        # 2. Resource_Slack: Mean bottleneck margin over the horizon
         bottleneck_slacks = self._compute_bottleneck_slack_profile(instance)
-        robustness_slack = min(bottleneck_slacks) if bottleneck_slacks else 0.0
+        robustness_slack = float(np.mean(bottleneck_slacks)) if bottleneck_slacks else 0.0
 
         # 3. Ski_Season_Risk: Accumulated risk near ski resorts during the winter season.
         winter_indices = [
@@ -1243,7 +1265,7 @@ class MaintenanceSchedule:
 
         self.raw_criteria_values = {
             "Reliability Stress": float(reliability_stress),
-            "Robustness Slack": float(robustness_slack),
+            "Resource Slack": float(robustness_slack),
             "Ski Season Risk": float(ski_season_risk),
             "Social Weekend Risk": float(social_weekend_risk),
             "Max Critical Overlap": overlap_metrics["Max_Critical_Overlap"],

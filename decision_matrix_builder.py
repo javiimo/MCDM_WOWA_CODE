@@ -25,6 +25,8 @@ from project_paths import (
     DEFAULT_SPATIAL_RECONSTRUCTION_KEYS_PATH,
     DEFAULT_SPATIAL_RECONSTRUCTION_POINTS_PATH,
     INSTANCE_PATH,
+    EXTENSION_DECISION_MATRIX_CSV_PATH,
+    OUTPUT_DIR,
     REGIONAL_NATURAL_PARKS_CSV_PATH,
     RAW_DECISION_MATRIX_CSV_PATH,
     RAW_DECISION_MATRIX_MD_PATH,
@@ -35,7 +37,7 @@ from project_paths import (
 
 RAW_CRITERION_COLUMNS = [
     "Reliability Stress",
-    "Robustness Slack",
+    "Resource Slack",
     "Ski Season Risk",
     "Social Weekend Risk",
     "Max Critical Overlap",
@@ -88,6 +90,7 @@ def build_raw_decision_matrix(
     parks_path: str | Path = REGIONAL_NATURAL_PARKS_CSV_PATH,
     plots: bool = False,
     verbose: bool = True,
+    deduplicate: bool = True,
 ) -> pd.DataFrame:
     """
     Build the raw decision matrix for maintenance scheduling alternatives.
@@ -113,7 +116,10 @@ def build_raw_decision_matrix(
     for schedule_path in schedule_paths:
         schedule_path = Path(schedule_path)
         schedule = MaintenanceSchedule(str(schedule_path))
-        setattr(schedule, "schedule_id", schedule_path.name)
+        schedule_id = schedule_path.name
+        if schedule_id.startswith("alpha"):
+            schedule_id = f"T{schedule_path.parent.name[4:]}_{schedule_id}"
+        setattr(schedule, "schedule_id", schedule_id)
         schedules.append(schedule)
 
     if verbose:
@@ -157,6 +163,9 @@ def build_raw_decision_matrix(
     unique_schedules: List[MaintenanceSchedule] = []
     seen_criteria = set()
     for schedule in schedules:
+        if not deduplicate:
+            unique_schedules.append(schedule)
+            continue
         criteria_tuple = tuple(
             schedule.raw_criteria_values.get(column, 0.0)
             for column in RAW_CRITERION_COLUMNS
@@ -182,7 +191,11 @@ def build_raw_decision_matrix(
         row_data = {}
         schedule_id = cast(str, getattr(schedule, "schedule_id", ""))
         match = re.match(r"sol(\d+)_t(\d+)_X_12_s(\d+)\.txt", schedule_id)
-        if match:
+        run = re.match(r"T(\d)_alpha([\d.]+)_seed(\d+)_time(\d+)\.txt", schedule_id)
+        if run:
+            team, alpha, seed, duration = run.groups()
+            alt_name = f"T{team}_A{alpha}_D{duration}_S{seed}"
+        elif match:
             duration, team, seed = match.groups()
             alt_name = f"T{team}_D{duration}_S{seed}"
         else:
@@ -215,6 +228,82 @@ def collect_solution_paths(base_path: str | Path = X12_DIR) -> List[str]:
                 solution_paths.append(str(full_path))
 
     return sorted(solution_paths)
+
+
+def reduce_instance_scenarios(source: Path, target: Path) -> None:
+    """
+    Stream an instance and shrink each risk scenario list to the shortest list with
+    the same mean over all scenarios and over positive scenarios, which are the only
+    statistics used by the criteria and the spatial reconstruction.
+    """
+    from math import gcd
+
+    import ijson
+
+    def shrink(values):
+        positive = [v for v in values if v > 0]
+        if not positive:
+            return [0.0] * min(len(values), 1)
+        g = gcd(len(positive), len(values))
+        mean = sum(positive) / len(positive)
+        return [mean] * (len(positive) // g) + [0.0] * ((len(values) - len(positive)) // g)
+
+    with source.open("rb") as f:
+        header = {
+            k: v for k, v in ijson.kvitems(f, "", use_float=True) if k != "Interventions"
+        }
+    with source.open("rb") as f, target.open("w", encoding="utf-8") as out:
+        out.write(json.dumps(header)[:-1] + ', "Interventions": {')
+        for n, (name, data) in enumerate(ijson.kvitems(f, "Interventions", use_float=True)):
+            for t, starts in data.get("risk", {}).items():
+                for st, values in starts.items():
+                    starts[st] = shrink(values)
+            out.write(("," if n else "") + json.dumps(name) + ":" + json.dumps(data))
+        out.write("}}")
+
+
+def build_extension_decision_matrix(instances=("X03", "X12", "X13")) -> pd.DataFrame:
+    """
+    Raw criteria of every validated calendar of the alpha/instance extension.
+    """
+    from project_paths import RESULTS_CSV_PATH, RESULTS_DIR, embedding_paths, instance_path
+
+    runs = pd.read_csv(RESULTS_CSV_PATH)
+    runs = runs[runs["calendar"].notna()]
+    frames = []
+    for name in instances:
+        source = instance_path(name)
+        reduced = OUTPUT_DIR / f"{source.stem}_mean_risk.json"
+        if not reduced.exists():
+            reduce_instance_scenarios(source, reduced)
+        rows = runs[runs["instance"] == name]
+        paths = [RESULTS_DIR / c for c in rows["calendar"]]
+        paths = [p for p in paths if p.exists() and p.stat().st_size > 0]
+        points, keys = embedding_paths(name)
+        if not points.exists():
+            from spatial_reconstruction import (
+                compute_mds_embeddings_rscript,
+                dissimilarity_and_weights,
+            )
+
+            with reduced.open("r", encoding="utf-8") as f:
+                instance = load_maintenance_instance_from_json(json.load(f))
+            names, dist, weights = dissimilarity_and_weights(instance)
+            np.save(points, compute_mds_embeddings_rscript(dist, weights, [42])[0][0])
+            np.save(keys, np.array(names))
+            del instance
+        matrix = build_raw_decision_matrix(
+            reduced, paths, points, keys, deduplicate=False, verbose=False
+        )
+        matrix = matrix.loc[:, RAW_CRITERION_COLUMNS].reset_index()
+        meta = rows.assign(
+            Alternative=[
+                f"T{s[-1]}_A{a}_D{d}_S{e}"
+                for s, a, d, e in zip(rows.solver, rows.alpha, rows.seconds, rows.seed)
+            ]
+        )
+        frames.append(meta.merge(matrix, on="Alternative"))
+    return pd.concat(frames, ignore_index=True)
 
 
 def write_markdown_table(df: pd.DataFrame, filename: str | Path, title: str) -> None:
@@ -271,4 +360,16 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    if "--extension" in sys.argv:
+        ensure_output_tree()
+        names = [a for a in sys.argv[1:] if a.startswith("X")] or ["X03", "X12", "X13"]
+        build_extension_decision_matrix(names).to_csv(
+            EXTENSION_DECISION_MATRIX_CSV_PATH.with_name(
+                f"decision_matrix_raw_extension_{'_'.join(names)}.csv"
+            ),
+            index=False,
+        )
+    else:
+        main()

@@ -40,7 +40,7 @@ def load_normalized_decision_matrix(path: Path) -> pd.DataFrame:
     desired_order = [
         "Alternative",
         "Reliability Stress",
-        "Robustness Slack",
+        "Resource Slack",
         "Ski Season Risk",
         "Social Weekend Risk",
         "Max Critical Overlap",
@@ -57,7 +57,7 @@ def build_decision_matrix_tabular(df: pd.DataFrame) -> str:
     header_cells = [
         "Alternative",
         r"\shortstack{Reliability\\Stress}",
-        r"\shortstack{Robustness\\Slack}",
+        r"\shortstack{Resource\\Slack}",
         r"\shortstack{Ski Season\\Risk}",
         r"\shortstack{Social\\Weekend Risk}",
         r"\shortstack{Max Critical\\Overlap}",

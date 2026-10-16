@@ -159,7 +159,7 @@ Support computations:
 | `c1` Reliability Stress | `sum_t max(0, R_t - tau_90)` | `compute_raw_criteria`: `safety_threshold=np.percentile(non_zero_risks,90)` then `np.sum(np.maximum(0, risk_profile - safety_threshold))` | direct match |
 | `c2` Max Critical Overlap | `max_t \lvert A_t \cap I_{crit} \rvert` | `compute_max_critical_overlap_criterion`: `top_10_count=max(1,int(len(all_interventions)*0.10))`; `critical_names=set(...)`; `count=sum(1 for name in active_intvs if name in critical_names)`; `max_overlap=max(overlap_curve)` | Exact implementation in `maintenance_scheduling_model.py:1037-1070` |
 | `c3` Risk Volatility | `sum_{t=2}^T \lvert R_t - R_{t-1} \rvert` | `compute_risk_volatility_criterion`: `risk_profile=np.array(self.risk_profile)`; `diffs=np.abs(np.diff(risk_profile))`; `total_jerk=float(np.sum(diffs))` | Exact implementation in `maintenance_scheduling_model.py:1022-1035` |
-| `c4` Robustness Slack | `min_{t,r} (Cmax - L)/(Cmax - Cmin)` | `_compute_bottleneck_slack_profile` and `min(...)` in `compute_raw_criteria` | direct match |
+| `c4` Resource Slack | `(1/T) sum_t min_r (Cmax - L)/(Cmax - Cmin)` | `_compute_bottleneck_slack_profile` and `mean(...)` in `compute_raw_criteria` | direct match |
 | `c5` Ski Season Risk | `sum_{t in winter} sum_{i in A_t} rbar_{i,t} * mu_ski(i)` | winter loop + membership weighting in `compute_raw_criteria` | uses `ski_area_proximity_membership` from `spatial_memberships.py` |
 | `c6` Summer Eco-Stress | `sum_{t in summer} max(0, E_t - median(E))` | `compute_summer_eco_stress_criterion` | `E_t` is sum of park-memberships over active interventions |
 | `c7` Social Weekend Risk | count of risky interventions starting on weekends | `compute_raw_criteria` | risky = above P80 intervention mean risk |

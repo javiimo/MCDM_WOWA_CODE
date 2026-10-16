@@ -20,6 +20,7 @@ if str(REPO_ROOT) not in sys.path:
 from project_paths import (
     NORMALIZED_DECISION_MATRIX_CSV_PATH,
     PLOTS_AND_TABLES_WINNERS_RADAR_PATH,
+    WOWA_STABILITY_SCENARIOS_CSV_PATH,
     ensure_output_tree,
 )
 
@@ -87,7 +88,7 @@ def load_profiles_for_radar() -> tuple[list[str], list[list[float]], list[str]]:
 
     labels = [
         "Reliability\nStress",
-        "Robustness\nSlack",
+        "Resource\nSlack",
         "Ski Season\nRisk",
         "Social\nWeekend Risk",
         "Max Critical\nOverlap",
@@ -95,11 +96,8 @@ def load_profiles_for_radar() -> tuple[list[str], list[list[float]], list[str]]:
         "Summer Eco-Stress",
     ]
 
-    alternatives = [
-        ("T1_D300_S33", "T1_D300_S33"),
-        ("T2_D500_S42", "T2_D500_S42"),
-        ("T2_D300_S33", "T2_D300_S33"),
-    ]
+    winners = pd.read_csv(WOWA_STABILITY_SCENARIOS_CSV_PATH)["Alternative"].unique()
+    alternatives = [(alternative, alternative) for alternative in winners]
 
     data: list[list[float]] = []
     legend_labels: list[str] = []
@@ -113,7 +111,7 @@ def load_profiles_for_radar() -> tuple[list[str], list[list[float]], list[str]]:
         values = row.iloc[0][
             [
                 "Reliability Stress",
-                "Robustness Slack",
+                "Resource Slack",
                 "Ski Season Risk",
                 "Social Weekend Risk",
                 "Max Critical Overlap",
@@ -139,8 +137,8 @@ def plot_robust_alternatives_radar():
     radar_ax = cast(PolarAxes, ax)
     fig.subplots_adjust(top=0.85, bottom=0.05)
 
-    radar_ax.set_rgrids([0.2, 0.4, 0.6, 0.8, 1.0], angle=180, fontsize=16, color="grey")
-    ax.set_ylim(0, 1.05)
+    radar_ax.set_rgrids([0.8, 0.9, 1.0], angle=180, fontsize=16, color="grey")
+    ax.set_ylim(0.7, 1.02)  # all values lie above 0.75
 
     for d, color, lbl in zip(data, colors, legend_labels):
         ax.plot(theta, d, color=color, linewidth=2.5, label=lbl)
@@ -174,12 +172,6 @@ def plot_robust_alternatives_radar():
         fontsize=16,
     )
 
-    plt.title(
-        "Comparative Profile of Robust Choices",
-        y=1.15,
-        fontsize=18,
-        weight="bold",
-    )
 
     output_path = FsPath(PLOTS_AND_TABLES_WINNERS_RADAR_PATH)
     output_path.parent.mkdir(parents=True, exist_ok=True)

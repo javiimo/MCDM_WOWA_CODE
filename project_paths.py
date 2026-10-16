@@ -10,6 +10,8 @@ ALTERNATIVES_DIR = DATA_DIR / "Alternatives"
 X12_DIR = ALTERNATIVES_DIR / "X12_Original_Execution"
 SOLVERS_DIR = ALTERNATIVES_DIR / "Solvers"
 INSTANCE_PATH = ALTERNATIVES_DIR / "downloaded" / "X_12.json"
+RESULTS_DIR = ALTERNATIVES_DIR / "Results"
+RESULTS_CSV_PATH = RESULTS_DIR / "results.csv"
 
 FRANCE_MAP_LOCATIONS_DIR = DATA_DIR / "france_map_and_locations"
 FRANCE_REGIONS_GEOJSON_PATH = FRANCE_MAP_LOCATIONS_DIR / "france.json"
@@ -31,6 +33,23 @@ RAW_DECISION_MATRIX_CSV_PATH = OUTPUT_CSV_DIR / "decision_matrix_raw.csv"
 RAW_DECISION_MATRIX_MD_PATH = OUTPUT_MD_DIR / "decision_matrix_raw.md"
 NORMALIZED_DECISION_MATRIX_CSV_PATH = OUTPUT_CSV_DIR / "decision_matrix_normalized_wowa.csv"
 WOWA_STABILITY_SCENARIOS_CSV_PATH = OUTPUT_CSV_DIR / "wowa_scenarios_comparison.csv"
+WOWA_STABILITY_RESULTS_CSV_PATH = OUTPUT_CSV_DIR / "wowa_stability_results.csv"
+WOWA_GRID_SUMMARY_CSV_PATH = OUTPUT_CSV_DIR / "wowa_grid_summary.csv"
+WOWA_CHOICE_SET_SIZE_CSV_PATH = OUTPUT_CSV_DIR / "wowa_choice_set_size.csv"
+EXTENSION_DECISION_MATRIX_CSV_PATH = OUTPUT_CSV_DIR / "decision_matrix_raw_extension.csv"
+WOWA_EXTENSION_CSV_PATH = OUTPUT_CSV_DIR / "wowa_extension_results.csv"
+MDS_STABILITY_CSV_PATH = OUTPUT_CSV_DIR / "mds_stability.csv"
+MDS_SELECTION_CSV_PATH = OUTPUT_CSV_DIR / "mds_selection.csv"
+
+
+def instance_path(name: str) -> Path:
+    return ALTERNATIVES_DIR / "downloaded" / f"X_{name[1:]}.json"
+
+
+def embedding_paths(name: str) -> tuple[Path, Path]:
+    if name == "X12":
+        return DEFAULT_SPATIAL_RECONSTRUCTION_POINTS_PATH, DEFAULT_SPATIAL_RECONSTRUCTION_KEYS_PATH
+    return OUTPUT_NPY_DIR / f"points_{name}.npy", OUTPUT_NPY_DIR / f"points_keys_{name}.npy"
 IMPORTANCE_SEARCH_CSV_PATH = OUTPUT_CSV_DIR / "importance_search_results.csv"
 FINAL_DISCRIMINATION_REPORT_PATH = OUTPUT_REPORTS_DIR / "final_discrimination_report.md"
 SPATIAL_RECONSTRUCTION_MAP_PATH = OUTPUT_FIGURES_DIR / "interventions_map.png"

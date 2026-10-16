@@ -231,6 +231,7 @@ def compute_feature_proximity_membership(
     near_full_dist: float,
     near_zero_dist: float,
     france_regions_path: str | Path = FRANCE_REGIONS_GEOJSON_PATH,
+    already_scaled: bool = False,
 ) -> pd.Series:
     """
     Generic helper to return membership of 'proximity' to a set of features.
@@ -246,7 +247,7 @@ def compute_feature_proximity_membership(
         raise ValueError("'points' and 'point_keys' must be the same length")
 
     france_gdf = load_france_regions(france_regions_path)
-    pts_scaled_deg = scale_embedding_to_france(points, france_gdf)
+    pts_scaled_deg = points if already_scaled else scale_embedding_to_france(points, france_gdf)
     pts_gdf = _to_geodf(pts_scaled_deg, france_gdf.crs)
 
     metric_crs = "EPSG:3857"
@@ -281,6 +282,7 @@ def compute_ski_area_proximity_membership(
     near_full_km: float = 30.0,
     near_zero_km: float = 80.0,
     france_regions_path: str | Path = FRANCE_REGIONS_GEOJSON_PATH,
+    already_scaled: bool = False,
 ) -> pd.Series:
     """Return μ_ski-near per intervention using the closest ski station."""
     # Convert km to meters for the generic function
@@ -291,6 +293,7 @@ def compute_ski_area_proximity_membership(
         near_full_dist=near_full_km * 1000.0,
         near_zero_dist=near_zero_km * 1000.0,
         france_regions_path=france_regions_path,
+        already_scaled=already_scaled,
     ).rename("ski_area_proximity_membership")
 
 
@@ -303,6 +306,7 @@ def compute_park_proximity_membership(
     near_full_m: float = 1000.0,
     near_zero_m: float = 10000.0,
     france_regions_path: str | Path = FRANCE_REGIONS_GEOJSON_PATH,
+    already_scaled: bool = False,
 ) -> pd.Series:
     """Return mu_park(i) per intervention using the closest regional natural park."""
     return compute_feature_proximity_membership(
@@ -312,6 +316,7 @@ def compute_park_proximity_membership(
         near_full_dist=near_full_m,
         near_zero_dist=near_zero_m,
         france_regions_path=france_regions_path,
+        already_scaled=already_scaled,
     ).rename("park_near_membership")
 
 

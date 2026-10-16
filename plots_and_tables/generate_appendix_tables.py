@@ -79,7 +79,7 @@ def _decision_matrix_rows(df: pd.DataFrame) -> Iterable[str]:
         cells = [
             _escape_latex(str(row["Alternative"])),
             f"{row['Reliability Stress']:.3f}",
-            f"{row['Robustness Slack']:.3f}",
+            f"{row['Resource Slack']:.3f}",
             f"{row['Ski Season Risk']:.3f}",
             f"{row['Social Weekend Risk']:.3f}",
             f"{row['Max Critical Overlap']:.3f}",
@@ -97,7 +97,7 @@ def build_normalized_decision_matrix_table() -> str:
     expected_cols = [
         "Alternative",
         "Reliability Stress",
-        "Robustness Slack",
+        "Resource Slack",
         "Ski Season Risk",
         "Social Weekend Risk",
         "Max Critical Overlap",
@@ -129,7 +129,7 @@ def build_normalized_decision_matrix_table() -> str:
         "\n"
         r"\toprule"
         "\n"
-        r"Alternative & \shortstack{Reliability\\Stress} & \shortstack{Robustness\\Slack} & \shortstack{Ski Season\\Risk} & \shortstack{Social\\Weekend Risk} & \shortstack{Max Critical\\Overlap} & \shortstack{Risk\\Volatility} & Summer Eco-Stress \\"
+        r"Alternative & \shortstack{Reliability\\Stress} & \shortstack{Resource\\Slack} & \shortstack{Ski Season\\Risk} & \shortstack{Social\\Weekend Risk} & \shortstack{Max Critical\\Overlap} & \shortstack{Risk\\Volatility} & Summer Eco-Stress \\"
         "\n"
         r"\midrule"
         "\n"
