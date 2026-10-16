@@ -163,18 +163,28 @@ def sensitivity_table(results: pd.DataFrame) -> None:
     )
 
 
-def lp_size_table(grid: pd.DataFrame) -> None:
+def lp_size_table(grid: pd.DataFrame, extension: pd.DataFrame | None = None) -> None:
+    """Grid size and LP times: X12 choice set of the paper and extended candidate sets."""
     rows = [
-        f"{r.Scenario} & {r.M} & {r.N} & {r.K_minimal} & {r.K_complete} & "
+        f"X12 & {r.Scenario} & {r.N} & {r.K_minimal} & {r.K_complete} & "
         f"{int(r.Constraints)} & {1000 * r.Mean_LP_Seconds:.2f} & {1000 * r.Total_LP_Seconds:.1f} \\\\"
         for r in grid.itertuples()
     ]
+    if extension is not None:
+        rows.append("\\midrule")
+        for (instance, scenario), g in extension.groupby(["Instance", "Scenario"], sort=False):
+            n_lps = g.N.sum()
+            rows.append(
+                f"{instance} (extended) & {scenario} & {g.N.iloc[0]} & {g.K_minimal.iloc[0]} & "
+                f"{g.K_complete.iloc[0]} & {int(g.Constraints.max())} & "
+                f"{1000 * g.LP_Seconds.sum() / n_lps:.2f} & {1000 * g.LP_Seconds.sum():.1f} \\\\"
+            )
     write_table(
         "lp_size_table",
-        "Scenario & $M$ & $N$ & $K_{\\min}$ & $K$ & Constraints & "
+        "Instance & Scenario & $N$ & $K_{\\min}$ & $K$ & Constraints & "
         "LP time (ms) & Total (ms)",
         rows,
-        "lccccccc",
+        "llcccccc",
     )
 
 
@@ -265,8 +275,8 @@ def extension_table(ext: pd.DataFrame) -> None:
         )
     write_table(
         "extension_table",
-        "Instance & Candidates & $N$ & Optimal in $\\mathcal P$ & Winners & "
-        "Winner rank & Best score optimal (\\%) & $\\Delta_\\rho$ (\\%)",
+        "Instance & Candidates & $N$ & Positive radius & Winners & "
+        "Winner rank & Best score positive (\\%) & $\\Delta_\\rho$ (\\%)",
         rows,
         "llcccccc",
     )
@@ -350,7 +360,11 @@ def main() -> None:
     winners = pd.read_csv(WOWA_STABILITY_SCENARIOS_CSV_PATH)
     selection_tables(winners, results)
     sensitivity_table(results)
-    lp_size_table(pd.read_csv(WOWA_GRID_SUMMARY_CSV_PATH))
+    ext_size_path = WOWA_EXTENSION_CSV_PATH.with_name("wowa_extension_lp_size.csv")
+    lp_size_table(
+        pd.read_csv(WOWA_GRID_SUMMARY_CSV_PATH),
+        pd.read_csv(ext_size_path) if ext_size_path.exists() else None,
+    )
     plot_stability_map(results)
     plot_choice_set_size(pd.read_csv(WOWA_CHOICE_SET_SIZE_CSV_PATH))
     plot_quantifiers(winners)

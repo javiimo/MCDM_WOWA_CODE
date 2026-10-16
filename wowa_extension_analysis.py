@@ -36,7 +36,7 @@ def load_runs(name):
 
 def main() -> None:
     ensure_output_tree()
-    rows, draws = [], []
+    rows, draws, sizes = [], [], []
     rng = np.random.default_rng(0)
     for name in INSTANCES:
         if not EXTENSION_DECISION_MATRIX_CSV_PATH.with_name(
@@ -60,12 +60,22 @@ def main() -> None:
             unique[["Alternative", *RAW_CRITERION_COLUMNS]].to_csv(tmp.name, index=False)
             for scenario, weights in build_default_importance_scenarios().items():
                 analyzer = WOWAStabilityAnalyzer(tmp.name, weights)
+                minimal = WOWAStabilityAnalyzer(tmp.name, weights, complete_grid=False)
+                minimal.build_unified_importance_grid()
                 bounds = shapley_bounds_around_weights(weights)
                 for profile, a_min, a_max in PROFILES:
                     for set_name, members in sets.items():
                         df = analyzer.solve_stability_radius_lp(
-                            a_min, a_max, bounds, "L2", members, details=False
+                            a_min, a_max, bounds, "L2", members, details=set_name == "all"
                         ).sort_values("Rho", ascending=False)
+                        if set_name == "all":
+                            sizes.append({
+                                "Instance": name, "Scenario": scenario, "Profile": profile,
+                                "N": len(members), "K_minimal": len(minimal.unified_importance_grid) - 1,
+                                "K_complete": len(analyzer.unified_importance_grid) - 1,
+                                "Constraints": df["Num_Constraints"].max(),
+                                "LP_Seconds": df["Solve_Time"].sum(),
+                            })
                         win = df.iloc[0]
                         i_win = alternatives.index(win["Alternative"])
                         best_score = min(members, key=lambda i: score_rank[i])
@@ -93,6 +103,7 @@ def main() -> None:
                             draws.append({"Scenario": scenario, "Draw": draw, "Rho_Star": rho})
     pd.DataFrame(rows).to_csv(WOWA_EXTENSION_CSV_PATH, index=False)
     pd.DataFrame(draws).to_csv(WOWA_EXTENSION_CSV_PATH.with_name("wowa_extension_mixed_draws.csv"), index=False)
+    pd.DataFrame(sizes).to_csv(WOWA_EXTENSION_CSV_PATH.with_name("wowa_extension_lp_size.csv"), index=False)
     print(f"Saved {WOWA_EXTENSION_CSV_PATH}")
 
 

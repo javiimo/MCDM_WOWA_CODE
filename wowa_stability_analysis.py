@@ -38,9 +38,16 @@ def projected_simplex_norm(vec):
     return float(np.linalg.norm(project_to_simplex_hyperplane(vec)))
 
 
-def margin_coefficient(vec, norm="L2"):
+def _weighted_median(arr, widths):
+    order = np.argsort(arr)
+    cum = np.cumsum(widths[order])
+    return arr[order][np.searchsorted(cum, 0.5 * cum[-1])]
+
+
+def margin_coefficient(vec, norm="L2", widths=None):
     """
     Margin coefficient kappa(n) = max{n^T d : 1^T d = 0, ||d|| <= 1}.
+    The slope norm ||d|| = max_k |d_k| / dt_k needs the cell widths dt_k.
     """
     arr = np.asarray(vec, dtype=float)
     if norm == "L2":
@@ -49,6 +56,35 @@ def margin_coefficient(vec, norm="L2"):
         return float((arr.max() - arr.min()) / 2.0)
     if norm == "capacity":
         return float(np.abs(np.diff(arr)).sum())
+    if norm == "slope":
+        widths = np.asarray(widths, dtype=float)
+        return float(widths @ np.abs(arr - _weighted_median(arr, widths)))
+    raise ValueError(f"Unknown norm {norm}")
+
+
+def steepest_direction(vec, norm="L2", widths=None):
+    """
+    Unit displacement d (1^T d = 0, ||d|| = 1) that decreases n^T d the most,
+    so that W + rho d reaches the boundary n^T W = b of a margin constraint.
+    """
+    arr = np.asarray(vec, dtype=float)
+    if norm == "L2":
+        d = -project_to_simplex_hyperplane(arr)
+        return d / np.linalg.norm(d)
+    if norm == "L1":
+        d = np.zeros(len(arr))
+        d[np.argmin(arr)] += 0.5
+        d[np.argmax(arr)] -= 0.5
+        return d
+    if norm == "capacity":
+        return np.diff(np.concatenate([[0.0], np.sign(np.diff(arr)), [0.0]]))
+    if norm == "slope":
+        widths = np.asarray(widths, dtype=float)
+        median = _weighted_median(arr, widths)
+        d = -np.sign(arr - median) * widths
+        at_median = np.isclose(arr, median)
+        d[at_median] = -d.sum() * widths[at_median] / widths[at_median].sum()
+        return d
     raise ValueError(f"Unknown norm {norm}")
 
 
@@ -166,12 +202,17 @@ class WOWAStabilityAnalyzer:
         self.unified_importance_grid = sorted(list(breakpoints))
 
     def _exact_weights(self):
+        """
+        Weights as exact fractions (10 decimals), rescaled so that they add up to one.
+        """
         if self.normalized_criteria_matrix is None:
             raise RuntimeError("Normalized criteria matrix is not available.")
-        return [
+        weights = [
             Fraction(str(round(self.criterion_importances[col], 10)))
             for col in self.normalized_criteria_matrix.columns
         ]
+        total = sum(weights)
+        return [w / total for w in weights]
 
     def build_complete_weight_grid(self):
         """
@@ -289,6 +330,18 @@ class WOWAStabilityAnalyzer:
         transformed_matrix = self.transformed_alternative_matrix
         orness_coefficients = self.orness_coefficients
 
+        if self.complete_grid:
+            # Exact cells: the j best criteria of x_i end at grid point p(B_ij).
+            weights = self._exact_weights()
+            for i, row_vals in enumerate(vals):
+                start, cum = 0, Fraction(0)
+                for j in np.argsort(-row_vals, kind="stable"):
+                    cum += weights[j]
+                    end = self.grid_index[cum]
+                    transformed_matrix[i, start:end] = row_vals[j]
+                    start = end
+            return
+
         for i in range(n_alts):
             row_vals = vals[i]
             sort_idx = np.argsort(-row_vals)
@@ -312,6 +365,11 @@ class WOWAStabilityAnalyzer:
         self.transformed_alternative_matrix = transformed_matrix
         self.orness_coefficients = orness_coefficients
 
+    @property
+    def cell_widths(self):
+        """Widths t_k - t_{k-1} of the grid cells."""
+        return np.diff(np.asarray(self.unified_importance_grid, dtype=float))
+
     @staticmethod
     def _add_margin(model, rho, margins, expr, rhs, kind, label, kappa):
         constr = model.addConstr(expr - kappa * rho >= rhs, f"{kind}_{label}")
@@ -325,6 +383,7 @@ class WOWAStabilityAnalyzer:
         if self.transformed_alternative_matrix is None:
             self.build_transformed_alternative_matrix()
         k_segments = self.transformed_alternative_matrix.shape[1]
+        widths = self.cell_widths
         model = gp.Model("Stability")
         model.setParam("OutputFlag", 0)
         model.setParam("DualReductions", 0)
@@ -334,12 +393,12 @@ class WOWAStabilityAnalyzer:
         margins = []
         eye = np.eye(k_segments)
         for k in range(k_segments):
-            kappa = margin_coefficient(eye[k], norm)
+            kappa = margin_coefficient(eye[k], norm, widths)
             self._add_margin(model, rho, margins, w[k], 0.0, "simplex", k, kappa)
 
         def add_bounds(coefs, low, high, kind, label):
             expr = gp.quicksum(coefs[k] * w[k] for k in range(k_segments))
-            kappa = margin_coefficient(coefs, norm)
+            kappa = margin_coefficient(coefs, norm, widths)
             if low > 0.0:
                 self._add_margin(model, rho, margins, expr, low, kind, f"{label}min", kappa)
             if high < 1.0:
@@ -413,7 +472,7 @@ class WOWAStabilityAnalyzer:
                     continue
                 diff = z[i_cand] - z[i_riv]
                 expr = gp.quicksum(diff[k] * w[k] for k in range(len(diff)))
-                kappa = margin_coefficient(diff, norm)
+                kappa = margin_coefficient(diff, norm, self.cell_widths)
                 self._add_margin(
                     model, rho, margins, expr, 0.0, "dominance", alternatives[i_riv], kappa
                 )
@@ -463,15 +522,9 @@ class WOWAStabilityAnalyzer:
                             ("dominance", "orness", "shapley", "simplex")})
                 row["Binding"] = max(shares, key=shares.get)
                 row["Rival"] = rival
-                if rival is not None and norm in ("L2", "L1"):
+                if rival is not None:
                     n_vec = z[i_cand] - z[alternatives.index(rival)]
-                    if norm == "L2":
-                        d = -project_to_simplex_hyperplane(n_vec)
-                        d /= np.linalg.norm(d)
-                    else:
-                        d = np.zeros(len(n_vec))
-                        d[np.argmin(n_vec)] += 0.5
-                        d[np.argmax(n_vec)] -= 0.5
+                    d = steepest_direction(n_vec, norm, self.cell_widths)
                     row["Tie_Orness_Shift"] = rho_val * float(orness @ d)
                     row.update(
                         {f"Tie_Shift_{c}": rho_val * v for c, v in zip(criteria, shapley @ d)}
