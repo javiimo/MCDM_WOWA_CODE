@@ -6,7 +6,7 @@ each type of constraint (dominance, orness, Shapley, simplex) are minimized and 
 over the set of optimal dual solutions of its Linear Program, and the competitors that can
 receive a positive share are listed. Equal bounds and a single competitor mean that the
 fragility table does not depend on the dual solution returned by the solver.
-Writes output/csv/revision/dual_shares_range.csv.
+Writes output/csv/supplementary/dual_shares_range.csv.
 """
 
 import sys
@@ -19,12 +19,12 @@ from gurobipy import GRB
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from project_paths import OUTPUT_CSV_DIR, RAW_DECISION_MATRIX_CSV_PATH  # noqa: E402
+from project_paths import RAW_DECISION_MATRIX_CSV_PATH, SUPPLEMENTARY_CSV_DIR  # noqa: E402
 from project_paths import WOWA_STABILITY_SCENARIOS_CSV_PATH  # noqa: E402
 from wowa_stability_analysis import (  # noqa: E402
     PROFILES,
     WOWAStabilityAnalyzer,
-    build_default_importance_scenarios,
+    build_weighting_scenarios,
     margin_coefficient,
     shapley_bounds_around_weights,
 )
@@ -34,7 +34,7 @@ KINDS = ("dominance", "orness", "shapley", "simplex")
 
 def margin_rows(analyzer, i_cand, a_min, a_max, bounds):
     """Rows n_c, right-hand sides b_c, coefficients kappa_c and kinds of (LP_i)."""
-    z = analyzer.transformed_alternative_matrix
+    z = analyzer.z
     k_segments = z.shape[1]
     rows = [(np.eye(k_segments)[k], 0.0, "simplex") for k in range(k_segments)]
     o = analyzer.orness_coefficients
@@ -89,9 +89,9 @@ def share_range(n, b, kappa, kinds, labels, rho_star):
 def main():
     winners = pd.read_csv(WOWA_STABILITY_SCENARIOS_CSV_PATH)
     rows = []
-    for scenario, p in build_default_importance_scenarios().items():
+    for scenario, p in build_weighting_scenarios().items():
         analyzer = WOWAStabilityAnalyzer(str(RAW_DECISION_MATRIX_CSV_PATH), p)
-        analyzer.build_transformed_alternative_matrix()
+        analyzer.build_unified_representation()
         bounds = shapley_bounds_around_weights(p)
         for profile, a_min, a_max in PROFILES:
             w = winners[(winners.Scenario == scenario) & (winners.Profile == profile)].iloc[0]
@@ -103,7 +103,7 @@ def main():
             row.update(share_range(n, b, kappa, kinds, labels, w.Rho))
             rows.append(row)
     df = pd.DataFrame(rows)
-    df.to_csv(OUTPUT_CSV_DIR / "revision" / "dual_shares_range.csv", index=False)
+    df.to_csv(SUPPLEMENTARY_CSV_DIR / "dual_shares_range.csv", index=False)
     pd.set_option("display.width", 250)
     print(df.round(3).to_string())
 

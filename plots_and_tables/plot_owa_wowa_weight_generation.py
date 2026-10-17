@@ -34,10 +34,10 @@ purple_shades = plt.cm.Purples(np.linspace(0.3, 0.6, n))
 # 1. Standard OWA (Equidistant)
 prop_owa = np.linspace(0, 1, n + 1)
 
-# 2. WOWA (Variable Importance)
+# 2. WOWA (variable weights)
 # Pattern: 5%, 30%, 10%, 50%, 5%
-importances = np.array([0.05, 0.30, 0.10, 0.50, 0.05])
-prop_wowa = np.concatenate(([0], np.cumsum(importances)))
+weights = np.array([0.05, 0.30, 0.10, 0.50, 0.05])
+prop_wowa = np.concatenate(([0], np.cumsum(weights)))
 
 # --- Plotting ---
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 9), sharey=True)

@@ -1,6 +1,8 @@
 """
-Tables and figures of the revision built from output/csv/revision/ and the main
-stability results. Writes to output/tex/revision/ and output/figures/revision/.
+Tables and figures of the sensitivity and supplementary analyses (Section 5 and Appendix B):
+Shapley tolerances, importance of the criteria, patterns of stability, uncertainty of the
+spatial reconstruction, and sensitivity to the weighting vector and to the norm.
+Run after wowa_stability_analysis.py and the scripts in supplementary_analyses/.
 """
 
 import sys
@@ -13,22 +15,26 @@ from scipy.stats import kendalltau, spearmanr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from plots_and_tables.plot_stability_results import PROFILE_NAMES, tex_id  # noqa: E402
-from project_paths import OUTPUT_CSV_DIR, OUTPUT_DIR, WOWA_STABILITY_RESULTS_CSV_PATH  # noqa: E402
-from wowa_stability_analysis import PROFILES  # noqa: E402
+from plots_and_tables.plot_stability_results import (  # noqa: E402
+    CRITERIA,
+    PROFILE_NAMES,
+    tex_id,
+    write_table,
+)
+from project_paths import (  # noqa: E402
+    MDS_STABILITY_CSV_PATH,
+    OUTPUT_PLOTS_AND_TABLES_DIR,
+    OUTPUT_TEX_DIR,
+    SUPPLEMENTARY_CSV_DIR,
+    WOWA_SHAPLEY_DEVIATION_CSV_PATH,
+    WOWA_STABILITY_RESULTS_CSV_PATH,
+    ensure_output_tree,
+)
+from wowa_stability_analysis import PROFILES, build_weighting_scenarios  # noqa: E402
 
-IN_DIR = OUTPUT_CSV_DIR / "revision"
-TEX_DIR = OUTPUT_DIR / "tex" / "revision"
-FIG_DIR = OUTPUT_DIR / "figures" / "revision"
+IN_DIR = SUPPLEMENTARY_CSV_DIR
 SCENARIOS = ["Baseline", "Sustainability"]
 COMBOS = [(s, p[0]) for s in SCENARIOS for p in PROFILES]
-
-
-def write_table(name, header, rows, cols):
-    body = "\n".join(rows)
-    (TEX_DIR / f"{name}.tex").write_text(
-        f"\\begin{{tabular}}{{{cols}}}\n\\toprule\n{header} \\\\\n\\midrule\n{body}\n\\bottomrule\n\\end{{tabular}}\n"
-    )
 
 
 def winners_of(df):
@@ -59,6 +65,30 @@ def sensitivity_table(results):
     write_table("stability_sensitivity_table",
                 "Scenario & Profile & " + " & ".join(n for _, n in settings)
                 + r" & min.\ $\tau$ & $\rho_{\mathcal P}$ ($0.1$) & $\rho_{\mathcal P}$ ($0.01$)", rows, "llllllccc")
+
+
+def shapley_deviation_table(results):
+    """
+    delta* (smallest max_j |phi_j - p_j| in the profile) and, for each Shapley tolerance, the
+    most stable alternative with max_j |phi_j - p_j| at the center of its ball.
+    """
+    delta_star = pd.read_csv(WOWA_SHAPLEY_DEVIATION_CSV_PATH).set_index(["Scenario", "Profile"]).Delta_Star
+    weights = build_weighting_scenarios()
+    settings = [("Free_Shapley", "free"), ("Main", r"$\varepsilon=0.1$"),
+                ("Shapley_0.05", r"$\varepsilon=0.05$"), ("Shapley_0.01", r"$\varepsilon=0.01$")]
+    rows = []
+    for s, p in COMBOS:
+        target = np.array([weights[s][c] for c in CRITERIA])
+        cells = [f"{delta_star[(s, p)]:.3f}"]
+        for setting, _ in settings:
+            g = results[(results.Scenario == s) & (results.Profile == p) & (results.Setting == setting)]
+            best = g[g.Rho >= g.Rho.max() - 1e-9]
+            deviation = np.abs(best[[f"Shapley_{c}" for c in CRITERIA]].to_numpy() - target).max()
+            cells.append(f"{tex_id(' / '.join(sorted(best.Alternative)))} ({deviation:.3f})")
+        rows.append(f"{s} & {PROFILE_NAMES[p]} & " + " & ".join(cells) + " \\\\")
+    write_table("shapley_deviation_table",
+                r"Scenario & Profile & $\delta^*$ & " + " & ".join(n for _, n in settings),
+                rows, "llclllll")
 
 
 def patterns_table():
@@ -136,8 +166,6 @@ def map_tables():
 
 def mds_table(summary):
     """Appendix table on the reconstruction: reproducibility, stress and rank correlations."""
-    from project_paths import MDS_STABILITY_CSV_PATH
-
     st = pd.read_csv(MDS_STABILITY_CSV_PATH)
     stress = pd.read_csv(IN_DIR / "mds_stress.csv").set_index("Map")["Stress"]
     repeat, seed42 = pd.read_csv(IN_DIR / "mds_reproducibility.csv")["Disparity"]
@@ -171,7 +199,6 @@ def mds_table(summary):
 
 
 def map_figure(freq):
-    FIG_DIR.mkdir(parents=True, exist_ok=True)
     fig, axes = plt.subplots(2, 4, figsize=(15, 6.5), sharex=False)
     for ax, (s, p) in zip(axes.ravel(), COMBOS):
         g = freq[(freq["Scenario"] == s) & (freq["Profile"] == p)].sort_values("Mean", ascending=False).head(8)[::-1]
@@ -184,37 +211,78 @@ def map_figure(freq):
     for ax in axes[1]:
         ax.set_xlabel(r"stability radius $\rho$ across maps", fontsize=8)
     fig.tight_layout()
-    fig.savefig(FIG_DIR / "map_radius_ranges.png", dpi=200)
+    fig.savefig(OUTPUT_PLOTS_AND_TABLES_DIR / "map_radius_ranges.png", dpi=200)
 
 
-def p_table():
-    df = pd.read_csv(IN_DIR / "p_sensitivity_summary.csv")
+NORM_NAMES = {"L2": "$L_2$", "L1": "$L_1$", "capacity": "Capacity", "slope": "Slope"}
+NORMS = list(NORM_NAMES)
+
+
+def norm_tables():
+    """Selection under each norm, invariance under refinement of the grid."""
+    sel = pd.read_csv(IN_DIR / "norm_selection_summary.csv")
     rows = []
     for s, p in COMBOS:
         cells = []
-        for eps in sorted(df["Eps"].unique()):
-            r = df[(df["Scenario"] == s) & (df["Profile"] == p) & (df["Eps"] == eps)].iloc[0]
-            cells.append(f"{100 * r.Share_Original:.0f} & {tex_id(r.Most_Frequent)} ({100 * r.Share_Most_Frequent:.0f})")
+        for norm in NORMS:
+            r = sel[(sel.Scenario == s) & (sel.Profile == p) & (sel.Norm == norm)].iloc[0]
+            cells.append(f"{tex_id(r.Tied_Winners)} ({100 * r.Relative_Gap:.0f}; {r.Share_dominance:.2f})")
         rows.append(f"{s} & {PROFILE_NAMES[p]} & " + " & ".join(cells) + " \\\\")
-    eps = sorted(df["Eps"].unique())
-    k = df.groupby("Eps")["Median_K"].median()
-    ch = df.groupby("Eps")["Median_Max_Change_p"].median()
-    header = "Scenario & Profile & " + " & ".join(
-        f"Same (\\%), $\\eta={e}$ & Most frequent (\\%), $\\eta={e}$" for e in eps)
-    write_table("p_sensitivity_table", header, rows, "ll" + "cl" * len(eps))
-    print("median K", k.to_dict(), "median max |p'-p|", ch.to_dict())
+    write_table("norm_selection_table",
+                "Scenario & Profile & " + " & ".join(NORM_NAMES[n] for n in NORMS), rows, "llllll")
+
+    ref = pd.read_csv(IN_DIR / "norm_refinement_summary.csv")
+    rows = [f"{NORM_NAMES[r.Norm]} & {r.Grid.replace('_', ' ')} & {r.K} & {100 * r.Max_Relative_Change:.1f} & "
+            f"{r.Same_Winner} of {r.Combinations} \\\\" for r in ref.itertuples()]
+    write_table("norm_refinement_table",
+                r"Norm & Grid & $K$ & Largest change of $\rho_i$ (\% of $\rho^*$) & Same selection",
+                rows, "llccc")
+
+
+def weight_sensitivity_tables():
+    """Perturbations of p: share of draws that keep the selection, by design and norm."""
+    df = pd.read_csv(IN_DIR / "weight_sensitivity_summary.csv")
+    designs = [("free", e) for e in (0.001, 0.01, 0.05, 0.15)] + \
+              [("tie_preserving", e) for e in (0.001, 0.01, 0.05, 0.15)] + [("lattice", 0.05)]
+    rows = []
+    for design, eta in designs:
+        g = df[(df.Design_Group == design) & (df.Eta == eta)]
+        label = "0.05 lattice" if design == "lattice" else f"{design.replace('_', '-')}, $\\eta={eta}$"
+        cells = [f"{100 * g[g.Norm == n].Share_Same.mean():.0f} ({100 * g[g.Norm == n].Median_Radii_Change.median():.0f})"
+                 for n in NORMS]
+        rows.append(f"{label} & {g.Median_K.median():.0f} & {g.Median_Max_Change_p.median():.4f} & "
+                    + " & ".join(cells) + " \\\\")
+    write_table("norm_continuity_table",
+                r"Perturbation of $\mathbf p$ & $K$ & $\max_j|p'_j-p_j|$ & "
+                + " & ".join(NORM_NAMES[n] for n in NORMS), rows, "lcc" + "c" * len(NORMS))
+
+    rows = []
+    for s, p in COMBOS:
+        cells = []
+        for design, eta in (("free", 0.01), ("tie_preserving", 0.01), ("lattice", 0.05)):
+            r = df[(df.Design_Group == design) & (df.Eta == eta) & (df.Norm == "L2")
+                   & (df.Scenario == s) & (df.Profile == p)].iloc[0]
+            cells.append(f"{100 * r.Share_Same:.0f} & {tex_id(r.Most_Frequent)} ({100 * r.Share_Most_Frequent:.0f})")
+        rows.append(f"{s} & {PROFILE_NAMES[p]} & " + " & ".join(cells) + " \\\\")
+    write_table("p_sensitivity_table",
+                r"Scenario & Profile & \multicolumn{2}{c}{free, $\eta=0.01$} & "
+                r"\multicolumn{2}{c}{tie-preserving, $\eta=0.01$} & \multicolumn{2}{c}{0.05 lattice} \\"
+                "\n & & Same (\\%) & Most frequent (\\%) & Same (\\%) & Most frequent (\\%) & Same (\\%) & Most frequent (\\%)",
+                rows, "llclclcl")
 
 
 def main():
-    TEX_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_output_tree()
     results = pd.read_csv(WOWA_STABILITY_RESULTS_CSV_PATH)
     sensitivity_table(results)
+    shapley_deviation_table(results)
     patterns_table()
     if (IN_DIR / "mds_radii.csv").exists():
         map_figure(map_tables())
-    if (IN_DIR / "p_sensitivity_summary.csv").exists():
-        p_table()
-    print(f"Tables in {TEX_DIR}")
+    if (IN_DIR / "weight_sensitivity_summary.csv").exists():
+        norm_tables()
+        weight_sensitivity_tables()
+    print(f"Tables in {OUTPUT_TEX_DIR}; figures in {OUTPUT_PLOTS_AND_TABLES_DIR}")
 
 
 if __name__ == "__main__":

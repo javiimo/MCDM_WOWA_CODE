@@ -17,7 +17,7 @@ from project_paths import (
 from wowa_stability_analysis import (
     PROFILES,
     WOWAStabilityAnalyzer,
-    build_default_importance_scenarios,
+    build_weighting_scenarios,
     shapley_bounds_around_weights,
 )
 
@@ -58,10 +58,8 @@ def main() -> None:
             sets[f"alpha={alpha}"] = [i for i, a in enumerate(unique["Alphas"]) if alpha in a]
         with tempfile.NamedTemporaryFile(suffix=".csv") as tmp:
             unique[["Alternative", *RAW_CRITERION_COLUMNS]].to_csv(tmp.name, index=False)
-            for scenario, weights in build_default_importance_scenarios().items():
+            for scenario, weights in build_weighting_scenarios().items():
                 analyzer = WOWAStabilityAnalyzer(tmp.name, weights)
-                minimal = WOWAStabilityAnalyzer(tmp.name, weights, complete_grid=False)
-                minimal.build_unified_importance_grid()
                 bounds = shapley_bounds_around_weights(weights)
                 for profile, a_min, a_max in PROFILES:
                     for set_name, members in sets.items():
@@ -71,8 +69,8 @@ def main() -> None:
                         if set_name == "all":
                             sizes.append({
                                 "Instance": name, "Scenario": scenario, "Profile": profile,
-                                "N": len(members), "K_minimal": len(minimal.unified_importance_grid) - 1,
-                                "K_complete": len(analyzer.unified_importance_grid) - 1,
+                                "N": len(members), "K_minimal": analyzer.minimal_grid_size(),
+                                "K_complete": len(analyzer.grid) - 1,
                                 "Constraints": df["Num_Constraints"].max(),
                                 "LP_Seconds": df["Solve_Time"].sum(),
                             })

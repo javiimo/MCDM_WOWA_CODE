@@ -324,10 +324,7 @@ def compute_park_proximity_membership(
 # #### Plots ################################################################
 # ---------------------------------------------------------------------------
 import matplotlib.pyplot as plt
-from matplotlib import cm
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 – needed for 3-D
-import numpy as np
-import geopandas as gpd
 from shapely.geometry import Point
 
 
@@ -429,7 +426,7 @@ def plot_intervention_park_gradient(
 # ❸ & ❹  3-D fuzzy-distance “surfaces” (radial symmetry)
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
-# ---------- 3-D helpers (replace the previous ones) -------------------------
+# ---------- 3-D helpers --------------------------------------------------------
 # ---------------------------------------------------------------------------
 from shapely.geometry import Polygon, MultiPolygon
 from matplotlib import colormaps as _cm
@@ -618,8 +615,7 @@ if __name__ == "__main__":
     # 1️⃣ basic map with everything
     plot_france_regions_parks_interventions(embedding_points, point_keys)
 
-    # 2️⃣ gradient map  (use any t-conorm you like)
-    # from fuzzy_sets import s_norm_max # No longer needed for single series
+    # 2️⃣ gradient map
     plot_intervention_park_gradient(
         embedding_points,
         point_keys,

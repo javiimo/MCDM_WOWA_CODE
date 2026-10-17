@@ -8,7 +8,7 @@ import numpy as np
 import tqdm
 
 from maintenance_scheduling_model import load_maintenance_instance_from_json
-from project_paths import INSTANCE_PATH, OUTPUT_NPY_DIR, ensure_output_tree
+from project_paths import INSTANCE_PATH, ensure_output_tree
 
 try:
     ro = importlib.import_module("rpy2.robjects")
@@ -368,20 +368,20 @@ def compare_reconstruction_methods(
     keys, corr_matrix = compute_sign_concordance_matrix(instance)
     weight_matrix = np.where(corr_matrix <= 0, 0, corr_matrix)
 
-    for d_method in tqdm.tqdm(distance_methods, desc=f"Distance methods", leave=False):
+    for d_method in tqdm.tqdm(distance_methods, desc="Distance methods", leave=False):
         print(f"\n=== Testing for distance transformation = {d_method} ===")
         keys, dist_matrix = compute_intervention_dissimilarity_matrix(
             instance, method=d_method
         )
 
         if mat_stats:
-            print(f"\nCORRELATION MATRIX:")
+            print("\nCORRELATION MATRIX:")
             print_matrix_statistics(corr_matrix)
             print(f"\nDISTANCE MATRIX, method={d_method}):")
             print_matrix_statistics(dist_matrix)
 
         # --- Non-metric MDS embedding using R SMACOF ---
-        print(f"\nEmbedding method: Non-metric MDS (R SMACOF via rpy2)")
+        print("\nEmbedding method: Non-metric MDS (R SMACOF via rpy2)")
         points, stress = compute_weighted_mds_embedding(
             distance_matrix=dist_matrix, weight_matrix=weight_matrix, n_dimensions=2
         )
@@ -449,13 +449,13 @@ def compute_and_save_spatial_reconstruction(
     )
 
     if mat_stats:
-        print(f"\nCORRELATION MATRIX:")
+        print("\nCORRELATION MATRIX:")
         print_matrix_statistics(corr_matrix)
         print(f"\nDISTANCE MATRIX (method={distance_method}):")
         print_matrix_statistics(dist_matrix)
 
     # --- Non-metric MDS embedding using R SMACOF ---
-    print(f"\nEmbedding method: Non-metric MDS (R SMACOF via rpy2)")
+    print("\nEmbedding method: Non-metric MDS (R SMACOF via rpy2)")
     points, stress = compute_weighted_mds_embedding(
         distance_matrix=dist_matrix, weight_matrix=weight_matrix, n_dimensions=2
     )

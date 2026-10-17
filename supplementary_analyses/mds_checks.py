@@ -1,9 +1,8 @@
 """
-Checks requested for the revision on the spatial reconstruction of X12:
-reproducibility of the MDS runs, stress of the reference map, pairwise rank
-correlations of c5 and c6 across maps, per-alternative frequency and radius
-across maps, effect of the orientation of the map and ablation of c5 and c6.
-Outputs go to output/csv/revision/ and never overwrite earlier results.
+Checks of the spatial reconstruction of X12 (Appendix B): reproducibility of the MDS runs,
+stress of every map, pairwise rank correlations of c5 and c6 across maps, radius of every
+alternative on every map, effect of the orientation of the map and ablation of c5 and c6.
+Uses the MDS runs cached by mds_stability_analysis.py; writes to output/csv/supplementary/.
 """
 
 import json
@@ -30,11 +29,11 @@ from maintenance_scheduling_model import (  # noqa: E402
 from mds_stability_analysis import SEEDS, SPATIAL, align, containment  # noqa: E402
 from project_paths import (  # noqa: E402
     DEFAULT_SPATIAL_RECONSTRUCTION_POINTS_PATH,
-    OUTPUT_CSV_DIR,
     OUTPUT_DIR,
     OUTPUT_NPY_DIR,
     RAW_DECISION_MATRIX_CSV_PATH,
     REGIONAL_NATURAL_PARKS_CSV_PATH,
+    SUPPLEMENTARY_CSV_DIR,
     X12_DIR,
 )
 from spatial_memberships import (  # noqa: E402
@@ -49,12 +48,12 @@ from spatial_reconstruction import dissimilarity_and_weights  # noqa: E402
 from wowa_stability_analysis import (  # noqa: E402
     PROFILES,
     WOWAStabilityAnalyzer,
-    build_default_importance_scenarios,
+    build_weighting_scenarios,
     shapley_bounds_around_weights,
 )
 
-OUT_DIR = OUTPUT_CSV_DIR / "revision"
-RSCRIPT = os.environ.get("RSCRIPT", "/home/javimo/.conda_envs/r-smacof/bin/Rscript")
+OUT_DIR = SUPPLEMENTARY_CSV_DIR
+RSCRIPT = os.environ.get("RSCRIPT", "Rscript")
 
 
 def run_r(dist, weights, body):
@@ -131,7 +130,7 @@ def all_radii(raw, scenarios=None):
     rows = []
     with tempfile.NamedTemporaryFile(suffix=".csv") as tmp:
         raw.to_csv(tmp.name)
-        for name, weights in (scenarios or build_default_importance_scenarios()).items():
+        for name, weights in (scenarios or build_weighting_scenarios()).items():
             analyzer = WOWAStabilityAnalyzer(tmp.name, weights)
             bounds = shapley_bounds_around_weights(weights)
             for profile, a_min, a_max in PROFILES:
@@ -197,7 +196,7 @@ def main() -> None:
 
     ablation = {
         name: {c: w / (1 - sum(p[s] for s in SPATIAL)) for c, w in p.items() if c not in SPATIAL}
-        for name, p in build_default_importance_scenarios().items()
+        for name, p in build_weighting_scenarios().items()
     }
     radii.append(all_radii(raw, ablation).assign(Variant="without_c5_c6", Map="none"))
     pd.concat(radii, ignore_index=True).to_csv(OUT_DIR / "mds_radii.csv", index=False)

@@ -1,11 +1,9 @@
-import json
 import statistics
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Tuple, Iterable, Set
 from datetime import date, timedelta
 import logging
 import pandas as pd
-import matplotlib.pyplot as plt
 import numpy as np
 
 from project_paths import ERROR_LOG_PATH, ensure_output_tree
@@ -953,7 +951,7 @@ class MaintenanceSchedule:
             with open(solution_path, "r") as f:
                 for line in f:
                     fields = line.split()
-                    # Solution files have no header: every "name start" line is kept.
+                    # Each line holds an intervention name and its start time.
                     if len(fields) == 2 and fields[1].isdigit():
                         intervention, start_time = fields
                         intervention = intervention.replace("Intervention_", "I")

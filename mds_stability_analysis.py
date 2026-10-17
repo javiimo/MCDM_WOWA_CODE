@@ -15,7 +15,7 @@ from scipy.linalg import orthogonal_procrustes
 from scipy.spatial import procrustes
 from scipy.stats import spearmanr
 
-from decision_matrix_builder import RAW_CRITERION_COLUMNS, collect_solution_paths
+from decision_matrix_builder import collect_solution_paths
 from maintenance_scheduling_model import MaintenanceSchedule, load_maintenance_instance_from_json
 from project_paths import (
     DEFAULT_SPATIAL_RECONSTRUCTION_POINTS_PATH,
@@ -41,7 +41,7 @@ from spatial_reconstruction import compute_mds_embeddings_rscript, dissimilarity
 from wowa_stability_analysis import (
     PROFILES,
     WOWAStabilityAnalyzer,
-    build_default_importance_scenarios,
+    build_weighting_scenarios,
     shapley_bounds_around_weights,
 )
 
@@ -111,7 +111,7 @@ def winners(raw, scenarios=None):
     rows = []
     with tempfile.NamedTemporaryFile(suffix=".csv") as tmp:
         raw.to_csv(tmp.name)
-        for name, weights in (scenarios or build_default_importance_scenarios()).items():
+        for name, weights in (scenarios or build_weighting_scenarios()).items():
             analyzer = WOWAStabilityAnalyzer(tmp.name, weights)
             bounds = shapley_bounds_around_weights(weights)
             for profile, a_min, a_max in PROFILES:
@@ -191,7 +191,7 @@ def main() -> None:
 
     ablation = {
         name: {c: w / (1 - sum(p[s] for s in SPATIAL)) for c, w in p.items() if c not in SPATIAL}
-        for name, p in build_default_importance_scenarios().items()
+        for name, p in build_weighting_scenarios().items()
     }
     selection.append(winners(raw, ablation).assign(Seed="without_c5_c6", Variant="none"))
     pd.DataFrame(stability).to_csv(MDS_STABILITY_CSV_PATH, index=False)

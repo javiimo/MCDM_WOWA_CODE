@@ -1,55 +1,98 @@
-# Fuzzy-MCDM for Maintenance Scheduling
+# Stability Radii for Multi-Criteria Choice under WOWA
 
-This repository contains the code used to build and analyze a multi-criteria decision model for maintenance schedules derived from the ROADEF/EURO 2020 challenge context.
-The current decision matrix is built from 31 unique alternatives obtained from Team 1, Team 2, and Team 3 solver runs.
+Code and data of the paper *Stability Radii for Multi-Criteria Choice under Weighted Ordered
+Weighted Averaging, with an Application to Power Grid Maintenance Scheduling*.
 
-The public workflow in this repository is:
-1. Generate or reuse the spatial reconstruction `.npy` files.
-2. Build the raw decision matrix from a solution pool.
-3. Run WOWA-based stability analysis.
-4. Generate paper plots and tables (optional, via `plots_and_tables/`).
+The method selects, from a finite set of alternatives evaluated on several criteria, the one
+that remains the best under the widest range of WOWA aggregation models. For a weighting
+vector $\mathbf p$, every WOWA operator is a point $\mathbf W$ of a common simplex defined on
+the grid of all subset weights $\mathbf p(B)$, the score of every alternative is linear in
+$\mathbf W$, and the orness and the Shapley importance of the criteria are linear in $\mathbf W$
+too. The stability radius of an alternative is the radius of the largest ball of admissible
+models in which it is the best, and it is computed with one Linear Program. No quantifier has
+to be chosen: the decision maker gives $\mathbf p$ and, optionally, an orness interval and
+bounds on the importance of the criteria.
 
-Detailed paper-to-code traceability is documented in [explanation.md](explanation.md).
+The application selects maintenance schedules for the ROADEF/EURO 2020 challenge (instance
+X12, with X03 and X13 as extensions), from candidates produced by three competition solvers.
+
+[explanation.md](explanation.md) maps the notation, results and experiments of the paper to the code.
 
 ## Repository Layout
 
-- `decision_matrix_builder.py`: builds the raw decision matrix.
-- `wowa_stability_analysis.py`: runs normalization and WOWA stability LP analysis.
-- `plots_and_tables/`: scripts used to generate paper figures and appendix tables.
-- `maintenance_scheduling_model.py`, `spatial_memberships.py`, `fuzzy_sets.py`: core domain, spatial, and fuzzy-set utilities.
-- `data/`: static inputs (solutions, instance, geospatial files).
-- `output/`: generated artifacts (`csv/`, `md/`, `tex/`, `figures/`, `npy/`, `reports/`, `logs/`).
-- `archive/`: exploratory or historical material kept for reference.
-- `plots_and_tables/export_normalized_decision_matrix_to_latex.py`: helper script to export the normalized WOWA matrix to LaTeX.
-- `plots_and_tables/plot_stability_results.py`: tables and figures of the stability analysis (run after `wowa_stability_analysis.py`).
-- `decision_matrix_builder.py --extension [X03 X12 X13]`: raw criteria of the alpha/instance runs in `data/Alternatives/Results` (needs `RSCRIPT` pointing to an R with `smacof` for new instances).
-- `wowa_extension_analysis.py`: stability-based selection on the extended candidate sets.
-- `mds_stability_analysis.py`: stability of the spatial reconstruction across MDS initializations and its effect on the selection (needs `RSCRIPT`).
+| Path | Content |
+|---|---|
+| `wowa_stability_analysis.py` | the method (`WOWAStabilityAnalyzer`) and the main experiment on X12 |
+| `wowa_extension_analysis.py` | selection on the candidate sets of X03, X12 and X13 for several objective functions |
+| `mds_stability_analysis.py` | uncertainty of the spatial reconstruction across MDS initializations |
+| `supplementary_analyses/` | checks of the map, patterns of stability, sensitivity to $\mathbf p$ and to the norm, dual multipliers |
+| `plots_and_tables/` | every table (LaTeX) and figure of the paper |
+| `maintenance_scheduling_model.py` | instances, schedules and criteria $c_1,\dots,c_7$ |
+| `decision_matrix_builder.py` | raw decision matrices |
+| `spatial_reconstruction.py`, `spatial_memberships.py`, `fuzzy_sets.py` | MDS map of the interventions and fuzzy proximity memberships |
+| `RTE_ChallengeROADEF2020_checker.py` | official checker of the challenge |
+| `project_paths.py` | input and output paths |
+| `data/` | candidate schedules, solver runner, map layers |
+| `output/` | generated files (`csv/`, `tex/`, `figures/`, `npy/`, `md/`), not tracked |
 
 ## Installation
 
 ```bash
-source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-If you do not use the provided virtual environment, ensure Python and required libraries are available.  
-`wowa_stability_analysis.py` requires a working `gurobipy` installation and license.
-`spatial_reconstruction.py` is required if you need to generate the `output/npy/points_*.npy` and `output/npy/points_keys_*.npy` files used by `decision_matrix_builder.py`; it requires R + `rpy2` + R package `smacof`.
+The Linear Programs are solved with Gurobi (`gurobipy`), which needs a license (free for
+academic use). The MDS map uses the R package `smacof`, through `rpy2`
+(`spatial_reconstruction.py`) or through the `Rscript` executable given by the `RSCRIPT`
+environment variable (MDS seeds and checks of the map).
 
-## Minimal Execution
+## Using the Method
 
-From the repository root:
+```python
+from wowa_stability_analysis import WOWAStabilityAnalyzer, shapley_bounds_around_weights
 
-```bash
-python spatial_reconstruction.py
-python decision_matrix_builder.py
-python wowa_stability_analysis.py
+p = {"Reliability Stress": 0.10, "Max Critical Overlap": 0.25, "Risk Volatility": 0.10,
+     "Resource Slack": 0.20, "Ski Season Risk": 0.10, "Summer Eco-Stress": 0.10,
+     "Social Weekend Risk": 0.15}
+analyzer = WOWAStabilityAnalyzer("output/csv/decision_matrix_raw.csv", p)
+radii = analyzer.solve_stability_radius_lp(
+    orness_min=0.35, orness_max=0.65,                     # attitudinal profile
+    shapley_bounds=shapley_bounds_around_weights(p, 0.1),  # optional importance requirements
+)
+print(radii.sort_values("Rho", ascending=False).head())
 ```
 
-`decision_matrix_builder.py` expects spatial reconstruction files (`points_*.npy` and `points_keys_*.npy`) under `output/npy/`. If they are not already present, generate them first with `python spatial_reconstruction.py`.
+Each row gives the radius $\rho_i$, the center $\mathbf W_i^*$ with its orness and Shapley
+importance, and the constraints and competitor that limit the radius. The criteria and
+their directions are listed in `CRITERIA_DIRECTIONS`.
 
-Main outputs are written under `output/`.
+## Reproducing the Paper
+
+From the repository root, in this order:
+
+```bash
+python spatial_reconstruction.py                  # MDS map of the X12 interventions (output/npy/)
+python decision_matrix_builder.py                 # raw decision matrix of X12
+python decision_matrix_builder.py --extension     # raw decision matrices of X03, X12 and X13
+python wowa_stability_analysis.py                 # main experiment
+python wowa_extension_analysis.py                 # extended candidate sets
+python mds_stability_analysis.py                  # MDS seeds (needs RSCRIPT)
+python supplementary_analyses/mds_checks.py       # checks of the map (needs RSCRIPT)
+python supplementary_analyses/patterns.py
+python supplementary_analyses/norm_and_weight_sensitivity.py   # about 30 min on 8 cores
+python supplementary_analyses/fragility_dual_check.py
+python plots_and_tables/generate_appendix_tables.py
+python plots_and_tables/plot_stability_results.py
+python plots_and_tables/supplementary_tables.py
+python plots_and_tables/plot_robust_alternatives_radar.py
+```
+
+The decision matrices need the instances (see below), and the extension needs the
+calendars of `data/Alternatives/Results/`. Tables are written to `output/tex/` and figures
+to `output/figures/plots_and_tables/`. The remaining scripts of `plots_and_tables/` draw the
+illustrative figures of the theory (orness level curves, weight simplex, OWA and WOWA
+weights) and the map of the interventions.
 
 ## Data and External Assets
 

@@ -1,7 +1,9 @@
 """
-Patterns of stability on the original X12 choice set (main setting) requested by
-Reviewer 1 (B1) and structural sensitivity to the weighting vector p (R1.C2, R2.2).
-Reads the results of wowa_stability_analysis.py; writes to output/csv/revision/.
+Patterns of stability on the X12 choice set (main setting): relation of the radius with the
+entropy of the center and its divergence from W^lin, with the competition score, the time
+limit and the distance to the nearest alternative, with each component of the center, and
+dispersion of the candidates by time limit and solver.
+Reads the results of wowa_stability_analysis.py; writes to output/csv/supplementary/.
 """
 
 import sys
@@ -19,18 +21,16 @@ from plots_and_tables.plot_stability_results import (  # noqa: E402
     SOLVER_TABLE_PATH,
 )
 from project_paths import (  # noqa: E402
-    OUTPUT_CSV_DIR,
+    SUPPLEMENTARY_CSV_DIR,
     RAW_DECISION_MATRIX_CSV_PATH,
     WOWA_STABILITY_RESULTS_CSV_PATH,
 )
 from wowa_stability_analysis import (  # noqa: E402
-    PROFILES,
     WOWAStabilityAnalyzer,
-    build_default_importance_scenarios,
-    shapley_bounds_around_weights,
+    build_weighting_scenarios,
 )
 
-OUT_DIR = OUTPUT_CSV_DIR / "revision"
+OUT_DIR = SUPPLEMENTARY_CSV_DIR
 
 
 def competition_scores() -> pd.Series:
@@ -45,10 +45,10 @@ def alternative_patterns() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     results = results[results["Setting"] == "Main"].copy()
     scores = competition_scores()
     rows = []
-    for scenario, p in build_default_importance_scenarios().items():
+    for scenario, p in build_weighting_scenarios().items():
         analyzer = WOWAStabilityAnalyzer(str(RAW_DECISION_MATRIX_CSV_PATH), p)
-        analyzer.build_transformed_alternative_matrix()
-        grid = np.array(analyzer.unified_importance_grid, dtype=float)
+        analyzer.build_unified_representation()
+        grid = np.array(analyzer.grid, dtype=float)
         w_lin = np.diff(grid)
         x = analyzer.normalized_criteria_matrix.to_numpy(dtype=float)
         dist = np.linalg.norm(x[:, None, :] - x[None, :, :], axis=2)
@@ -88,7 +88,7 @@ def alternative_patterns() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 
     raw = pd.read_csv(RAW_DECISION_MATRIX_CSV_PATH)
     analyzer = WOWAStabilityAnalyzer(str(RAW_DECISION_MATRIX_CSV_PATH),
-                                     build_default_importance_scenarios()["Baseline"])
+                                     build_weighting_scenarios()["Baseline"])
     x = analyzer.normalized_criteria_matrix[CRITERIA].to_numpy(dtype=float)
     times = raw["Alternative"].str.extract(r"_D(\d+)_")[0].astype(int).to_numpy()
     teams = raw["Alternative"].str[:2].to_numpy()
@@ -119,44 +119,6 @@ def component_patterns() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def p_sensitivity(n_draws=100, eps_values=(0.05, 0.15)) -> tuple[pd.DataFrame, pd.DataFrame]:
-    rng = np.random.default_rng(0)
-    rows = []
-    for scenario, p in build_default_importance_scenarios().items():
-        bounds = shapley_bounds_around_weights(p)  # importance requirement stays on the original p
-        names = list(p)
-        base = np.array([p[c] for c in names])
-        draws = [("original", 0.0, base)]
-        for eps in eps_values:
-            for _ in range(n_draws):
-                q = base * np.exp(eps * rng.standard_normal(len(base)))
-                draws.append((len(draws), eps, np.round(q / q.sum(), 6)))
-        for draw, eps, q in draws:
-            analyzer = WOWAStabilityAnalyzer(str(RAW_DECISION_MATRIX_CSV_PATH), dict(zip(names, q)))
-            analyzer.build_transformed_alternative_matrix()
-            k = len(analyzer.unified_importance_grid) - 1
-            for profile, a_min, a_max in PROFILES:
-                df = analyzer.solve_stability_radius_lp(a_min, a_max, bounds, details=False)
-                best = df.sort_values("Rho", ascending=False).iloc[0]
-                rows.append({"Scenario": scenario, "Draw": draw, "Eps": eps, "K": k,
-                             "Profile": profile, "Winner": best["Alternative"], "Rho": best["Rho"],
-                             "Max_Abs_Change_p": float(np.abs(q - base).max())})
-        print(scenario, "done")
-    draws = pd.DataFrame(rows)
-    original = draws[draws["Draw"] == "original"].set_index(["Scenario", "Profile"])["Winner"]
-    draws["Original_Winner"] = [original[(s, pr)] for s, pr in zip(draws["Scenario"], draws["Profile"])]
-    summary = []
-    for (scenario, eps, profile), g in draws[draws["Draw"] != "original"].groupby(
-            ["Scenario", "Eps", "Profile"], sort=False):
-        top = g["Winner"].value_counts()
-        summary.append({"Scenario": scenario, "Eps": eps, "Profile": profile,
-                        "Median_K": g["K"].median(), "Median_Max_Change_p": g["Max_Abs_Change_p"].median(),
-                        "Original_Winner": g["Original_Winner"].iloc[0],
-                        "Share_Original": (g["Winner"] == g["Original_Winner"]).mean(),
-                        "Most_Frequent": top.index[0], "Share_Most_Frequent": top.iloc[0] / len(g)})
-    return draws, pd.DataFrame(summary)
-
-
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     alts, summary, dispersion = alternative_patterns()
@@ -168,12 +130,6 @@ def main() -> None:
     components = component_patterns()
     components.to_csv(OUT_DIR / "patterns_components.csv", index=False)
     print(components.round(2).to_string())
-    if (OUT_DIR / "p_sensitivity_summary.csv").exists():
-        return  # the sampling below takes about half an hour
-    draws, p_summary = p_sensitivity()
-    draws.to_csv(OUT_DIR / "p_sensitivity.csv", index=False)
-    p_summary.to_csv(OUT_DIR / "p_sensitivity_summary.csv", index=False)
-    print(p_summary.round(3).to_string())
 
 
 if __name__ == "__main__":

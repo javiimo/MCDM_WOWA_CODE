@@ -1,5 +1,8 @@
 """
-Tables and figures for the revised stability-based selection (complete grid LP).
+Tables and figures of the stability-based selection on X12 and on the extended candidate
+sets (Section 5): selection, fragility and Shapley importance at the centers, stability map,
+representative quantifiers, choice-set size, extension and LP size.
+Run after wowa_stability_analysis.py and wowa_extension_analysis.py.
 """
 
 from __future__ import annotations
@@ -11,32 +14,31 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from scipy.stats import kendalltau
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from project_paths import (
+from project_paths import (  # noqa: E402
     EXTENSION_DECISION_MATRIX_CSV_PATH,
-    MDS_SELECTION_CSV_PATH,
-    MDS_STABILITY_CSV_PATH,
-    WOWA_EXTENSION_CSV_PATH,
     OUTPUT_PLOTS_AND_TABLES_DIR,
     OUTPUT_TEX_DIR,
+    RAW_DECISION_MATRIX_CSV_PATH,
     WOWA_CHOICE_SET_SIZE_CSV_PATH,
+    WOWA_EXTENSION_CSV_PATH,
+    WOWA_EXTENSION_LP_SIZE_CSV_PATH,
     WOWA_GRID_SUMMARY_CSV_PATH,
     WOWA_STABILITY_RESULTS_CSV_PATH,
     WOWA_STABILITY_SCENARIOS_CSV_PATH,
     ensure_output_tree,
 )
-from wowa_stability_analysis import (
+from wowa_stability_analysis import (  # noqa: E402
+    MAIN_NORM,
     PROFILES,
     WOWAStabilityAnalyzer,
-    build_default_importance_scenarios,
+    build_weighting_scenarios,
     margin_coefficient,
 )
-from project_paths import RAW_DECISION_MATRIX_CSV_PATH
 
 SOLVER_TABLE_PATH = OUTPUT_TEX_DIR / "appendix_solver_results_table.tex"
 CRITERIA = [
@@ -76,7 +78,7 @@ def write_table(name: str, header: str, rows: list[str], cols: str) -> None:
 def selection_tables(winners: pd.DataFrame, results: pd.DataFrame) -> None:
     ranks = competition_ranks(results["Alternative"].unique())
     sel, frag, shap = [], [], []
-    p = build_default_importance_scenarios()
+    p = build_weighting_scenarios()
     for scenario, group in winners.groupby("Scenario", sort=False):
         shap.append(
             f"{scenario} & $\\mathbf p$ & & "
@@ -136,30 +138,6 @@ def selection_tables(winners: pd.DataFrame, results: pd.DataFrame) -> None:
         "Scenario & Profile & $H(\\mathbf W^*)$ & " + " & ".join(SHORT[c] for c in CRITERIA),
         shap,
         "llc" + "c" * len(CRITERIA),
-    )
-
-
-def sensitivity_table(results: pd.DataFrame) -> None:
-    rows = []
-    for (scenario, profile), g in results.groupby(["Scenario", "Profile"], sort=False):
-        main = g[g.Setting == "Main"].set_index("Alternative").Rho
-        cells, taus = [], []
-        for setting in ("Main", "Free_Shapley", "Shapley_0.05", "Shapley_0.01", "L1", "Capacity"):
-            other = g[g.Setting == setting].set_index("Alternative").Rho
-            best = other[other >= other.max() - 1e-9].index
-            cells.append(" / ".join(tex_id(a) for a in best))
-            if setting != "Main":
-                taus.append(kendalltau(main, other.reindex(main.index))[0])
-        rows.append(
-            f"{scenario} & {PROFILE_NAMES[profile]} & " + " & ".join(cells)
-            + f" & {min(taus):.3f} \\\\"
-        )
-    write_table(
-        "stability_sensitivity_table",
-        "Scenario & Profile & $\\varepsilon=0.1$ & free & $\\varepsilon=0.05$ & "
-        "$\\varepsilon=0.01$ & $L_1$ & Capacity & min.\\ $\\tau$",
-        rows,
-        "llllllllc",
     )
 
 
@@ -236,18 +214,23 @@ def plot_choice_set_size(size: pd.DataFrame) -> None:
 
 
 def plot_quantifiers(winners: pd.DataFrame) -> None:
-    scenarios = build_default_importance_scenarios()
+    """
+    Representative quantifier Q_{W*} of each winner and the envelope of the quantifiers in
+    its ball: Q(t_k) changes by at most rho * kappa(1_{h <= k}).
+    """
+    scenarios = build_weighting_scenarios()
     fig, axes = plt.subplots(1, 2, figsize=(10, 4), sharey=True)
     for ax, (scenario, g) in zip(axes, winners.groupby("Scenario", sort=False)):
         analyzer = WOWAStabilityAnalyzer(str(RAW_DECISION_MATRIX_CSV_PATH), scenarios[scenario])
-        analyzer.build_unified_importance_grid()
-        grid = np.array(analyzer.unified_importance_grid)
+        analyzer.build_complete_weight_grid()
+        grid = np.array(analyzer.grid)
         k_segments = len(grid) - 1
         for _, w in g[g.Profile != "Full_Spectrum"].iterrows():
             center = np.array([float(v) for v in w["Center"].split()])
             q = np.concatenate([[0.0], np.cumsum(center)])
             band = w["Rho"] * np.array(
-                [margin_coefficient((np.arange(k_segments) < k).astype(float))
+                [margin_coefficient((np.arange(k_segments) < k).astype(float), MAIN_NORM,
+                                    analyzer.cell_widths)
                  for k in range(k_segments + 1)]
             )
             line, = ax.plot(grid, q, marker=".",
@@ -282,56 +265,6 @@ def extension_table(ext: pd.DataFrame) -> None:
     )
 
 
-def mds_table(stab: pd.DataFrame, sel: pd.DataFrame) -> None:
-    def unchanged(variant):
-        x = sel[sel.Variant == variant].set_index(["Scenario", "Profile"])
-        ref = x[x.Seed == "reference"].Winner
-        seeds = x[x.Seed != "reference"]
-        return 100 * (seeds.Winner == ref.reindex(seeds.index)).mean()
-
-    a, c = (stab[stab.Variant == v] for v in ("aligned", "contained"))
-    ref_a = sel[(sel.Variant == "aligned") & (sel.Seed == "reference")].set_index(["Scenario", "Profile"]).Winner
-    ref_c = sel[(sel.Variant == "contained") & (sel.Seed == "reference")].set_index(["Scenario", "Profile"]).Winner
-    abl = sel[sel.Seed == "without_c5_c6"].set_index(["Scenario", "Profile"]).Winner
-    both = lambda f, col, mult=1: f"{mult * f(a[col]):.{2 if mult == 1 else 0}f} & {mult * f(c[col]):.{2 if mult == 1 else 0}f}"
-    med = lambda x: x.median()
-    rows = [
-        f"Stress (median) & \\multicolumn{{2}}{{c}}{{{a.Stress.median():.3f} [{a.Stress.min():.3f}, {a.Stress.max():.3f}]}} \\\\",
-        f"Runs reaching the iteration limit & \\multicolumn{{2}}{{c}}{{{(a.Iterations >= 500).sum()} of {len(a)}}} \\\\",
-        f"Procrustes disparity (0: same shape, 1: unrelated) & \\multicolumn{{2}}{{c}}{{{a.Disparity.median():.3f}}} \\\\",
-        f"Displacement, median (km) & {a.Shift_Median_km.median():.0f} & {c.Shift_Median_km.median():.0f} \\\\",
-        f"Interventions with changed $\\mu_{{\\mathrm{{ski}}}}$ (\\%) & {both(med, 'Ski_Changed', 100)} \\\\",
-        f"Interventions with changed $\\mu_{{\\mathrm{{park}}}}$ (\\%) & {both(med, 'Park_Changed', 100)} \\\\",
-        f"Spearman of $c_5$ with the reference & {both(med, 'Spearman_c5')} \\\\",
-        f"Spearman of $c_6$ with the reference & {both(med, 'Spearman_c6')} \\\\",
-        f"Most stable alternative unchanged (\\% of seeds $\\times$ combinations) & {unchanged('aligned'):.0f} & {unchanged('contained'):.0f} \\\\",
-        f"Reference selection changed by containment (\\% of combinations) & \\multicolumn{{2}}{{c}}{{{100 * (ref_a != ref_c.reindex(ref_a.index)).mean():.0f}}} \\\\",
-        f"Reference selection unchanged without $c_5,c_6$ (\\% of combinations) & \\multicolumn{{2}}{{c}}{{{100 * (abl == ref_a.reindex(abl.index)).mean():.0f}}} \\\\",
-    ]
-    write_table("mds_stability_table", "Measure (median over 20 seeds) & Aligned & Aligned and contained", rows, "lcc")
-
-
-def map_frequency_table(sel: pd.DataFrame) -> None:
-    """Selection across the plausible maps (aligned MDS seeds) of each combination."""
-    x = sel[sel.Variant == "aligned"]
-    ref = x[x.Seed == "reference"].set_index(["Scenario", "Profile"]).Winner
-    seeds = x[x.Seed != "reference"]
-    rows = []
-    for (scenario, profile), g in seeds.groupby(["Scenario", "Profile"], sort=False):
-        freq = g.Winner.value_counts(normalize=True)
-        reference = ref[(scenario, profile)]
-        rows.append(
-            f"{scenario} & {PROFILE_NAMES[profile]} & {tex_id(reference)} & "
-            f"{100 * freq.get(reference, 0):.0f} & {tex_id(freq.index[0])} & {100 * freq.iloc[0]:.0f} \\\\"
-        )
-    write_table(
-        "map_frequency_table",
-        "Scenario & Profile & Reference map & \\% of maps & Most frequent & \\% of maps",
-        rows,
-        "llllcc",
-    )
-
-
 def plot_risk_excess() -> None:
     runs = pd.read_csv(EXTENSION_DECISION_MATRIX_CSV_PATH.with_name(
         "decision_matrix_raw_extension_X12.csv"))
@@ -359,20 +292,15 @@ def main() -> None:
     results = pd.read_csv(WOWA_STABILITY_RESULTS_CSV_PATH)
     winners = pd.read_csv(WOWA_STABILITY_SCENARIOS_CSV_PATH)
     selection_tables(winners, results)
-    sensitivity_table(results)
-    ext_size_path = WOWA_EXTENSION_CSV_PATH.with_name("wowa_extension_lp_size.csv")
     lp_size_table(
         pd.read_csv(WOWA_GRID_SUMMARY_CSV_PATH),
-        pd.read_csv(ext_size_path) if ext_size_path.exists() else None,
+        pd.read_csv(WOWA_EXTENSION_LP_SIZE_CSV_PATH) if WOWA_EXTENSION_LP_SIZE_CSV_PATH.exists() else None,
     )
     plot_stability_map(results)
     plot_choice_set_size(pd.read_csv(WOWA_CHOICE_SET_SIZE_CSV_PATH))
     plot_quantifiers(winners)
     extension_table(pd.read_csv(WOWA_EXTENSION_CSV_PATH))
     plot_risk_excess()
-    if MDS_SELECTION_CSV_PATH.exists():
-        mds_table(pd.read_csv(MDS_STABILITY_CSV_PATH), pd.read_csv(MDS_SELECTION_CSV_PATH))
-        map_frequency_table(pd.read_csv(MDS_SELECTION_CSV_PATH))
     print(f"Tables saved to {OUTPUT_TEX_DIR}; figures to {OUTPUT_PLOTS_AND_TABLES_DIR}")
 
 

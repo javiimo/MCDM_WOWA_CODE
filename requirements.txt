@@ -1,13 +1,12 @@
 pandas
 numpy
+scipy
 matplotlib
 geopandas
 shapely
 pyproj
-scikit-learn
-scikit-fuzzy
+openpyxl
 tqdm
+ijson
 rpy2
 gurobipy
-tabulate
-openpyxl
