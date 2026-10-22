@@ -81,7 +81,7 @@ def selection_tables(winners: pd.DataFrame, results: pd.DataFrame) -> None:
     p = build_weighting_scenarios()
     for scenario, group in winners.groupby("Scenario", sort=False):
         shap.append(
-            f"{scenario} & $\\mathbf p$ & & "
+            f"{scenario} & $\\mathbf p$ & "
             + " & ".join(f"{p[scenario][c]:.2f}" for c in CRITERIA)
             + " \\\\"
         )
@@ -89,7 +89,7 @@ def selection_tables(winners: pd.DataFrame, results: pd.DataFrame) -> None:
             prof = PROFILE_NAMES[w["Profile"]]
             sel.append(
                 f"{scenario} & {prof} & {tex_id(w['Alternative'])} & {w['Rho']:.4f} & "
-                f"{w['Rho_Rel']:.2f} & {tex_id(w['Second'])} & {w['Rho_Second']:.4f} & "
+                f"{tex_id(w['Second'])} & {w['Rho_Second']:.4f} & "
                 f"{100 * w['Relative_Gap']:.1f} & {w['Optimized_Orness']:.3f} & "
                 f"{ranks[w['Alternative']]} \\\\"
             )
@@ -106,10 +106,10 @@ def selection_tables(winners: pd.DataFrame, results: pd.DataFrame) -> None:
                 f"{scenario} & {prof} & {tex_id(w['Alternative'])} & "
                 f"{tex_id(w['Rival']) if isinstance(w['Rival'], str) else '---'} & "
                 f"{w['Share_dominance']:.2f} & {w['Share_orness']:.2f} & "
-                f"{w['Share_shapley']:.2f} & {w['Share_simplex']:.2f} & {shift_txt} \\\\"
+                f"{w['Share_simplex']:.2f} & {shift_txt} \\\\"
             )
             shap.append(
-                f" & {prof} & {w['Entropy']:.3f} & "
+                f" & {prof} & "
                 + " & ".join(f"{w[f'Shapley_{c}']:.3f}" for c in CRITERIA)
                 + " \\\\"
             )
@@ -120,31 +120,51 @@ def selection_tables(winners: pd.DataFrame, results: pd.DataFrame) -> None:
         rows.pop()
     write_table(
         "stability_selection_table",
-        "Scenario & Profile & Most stable & $\\rho$ & $\\rho/\\rho_{\\mathcal P}$ & "
-        "Second & $\\rho_{2nd}$ & $\\Delta_\\rho$ (\\%) & Orness & Rank",
+        "Scenario & Profile & Most robust & $\\rho$ & "
+        "Second & $\\rho_{2nd}$ & $\\Delta_\\rho$ (\\%) & Center orness & Rank",
         sel,
-        "llllcllccc",
+        "llllllccc",
     )
     write_table(
         "stability_fragility_table",
-        "Scenario & Profile & Most stable & Rival & $\\theta_{\\mathrm{dom}}$ & "
-        "$\\theta_{\\mathrm{orn}}$ & $\\theta_{\\mathrm{Sh}}$ & $\\theta_{\\Delta}$ & "
+        "Scenario & Profile & Most robust & Competitor & $\\theta_{\\mathrm{dom}}$ & "
+        "$\\theta_{\\mathrm{orn}}$ & $\\theta_{\\Delta}$ & "
         "$\\Delta$orness & Largest $\\Delta\\phi_j$ (gain, loss)",
         frag,
-        "llllcccccl",
+        "llllccccl",
     )
     write_table(
         "stability_shapley_table",
-        "Scenario & Profile & $H(\\mathbf W^*)$ & " + " & ".join(SHORT[c] for c in CRITERIA),
+        "Scenario & Profile & " + " & ".join(SHORT[c] for c in CRITERIA),
         shap,
-        "llc" + "c" * len(CRITERIA),
+        "ll" + "c" * len(CRITERIA),
     )
+
+
+def competition_comparison_table(results: pd.DataFrame) -> None:
+    """Competition quality and positive-radius counts, from the generated run table and LP CSV."""
+    rows = re.findall(r"^(T\d\\_D\d+\\_S\d+) &.*& ([\d.]+) \\\\", SOLVER_TABLE_PATH.read_text(), re.M)
+    scores = pd.Series({k.replace(r"\_", "_"): float(v) for k, v in rows})
+    main = results[results.Setting == "Main"]
+    scores = scores.reindex(main.Alternative.unique()).sort_values()
+    ranks = scores.rank(method="min").astype(int)
+    winners = main.loc[main.groupby(["Scenario", "Profile"]).Rho.idxmax(), "Alternative"]
+    names = list(dict.fromkeys(list(scores.head(3).index) + list(winners)))
+    lines = []
+    for name in names:
+        g = main[main.Alternative == name]
+        lines.append(f"{tex_id(name)} & {ranks[name]} & "
+                     f"{100*(scores[name]/scores.min()-1):.2f} & {int((winners == name).sum())} & "
+                     f"{max(g.Rho.max(), 0.0):.4f} " + r"\\")
+    write_table("competition_comparison_table",
+                r"Alternative & Rank & Score gap (\%) & Selected (of 8) & Max.\ $\rho$",
+                lines, "lcccc")
 
 
 def lp_size_table(grid: pd.DataFrame, extension: pd.DataFrame | None = None) -> None:
     """Grid size and LP times: X12 choice set of the paper and extended candidate sets."""
     rows = [
-        f"X12 & {r.Scenario} & {r.N} & {r.K_minimal} & {r.K_complete} & "
+        f"X12 & {r.Scenario} & {r.N} & {r.K_complete} & "
         f"{int(r.Constraints)} & {1000 * r.Mean_LP_Seconds:.2f} & {1000 * r.Total_LP_Seconds:.1f} \\\\"
         for r in grid.itertuples()
     ]
@@ -153,37 +173,37 @@ def lp_size_table(grid: pd.DataFrame, extension: pd.DataFrame | None = None) -> 
         for (instance, scenario), g in extension.groupby(["Instance", "Scenario"], sort=False):
             n_lps = g.N.sum()
             rows.append(
-                f"{instance} (extended) & {scenario} & {g.N.iloc[0]} & {g.K_minimal.iloc[0]} & "
+                f"{instance} (extended) & {scenario} & {g.N.iloc[0]} & "
                 f"{g.K_complete.iloc[0]} & {int(g.Constraints.max())} & "
                 f"{1000 * g.LP_Seconds.sum() / n_lps:.2f} & {1000 * g.LP_Seconds.sum():.1f} \\\\"
             )
     write_table(
         "lp_size_table",
-        "Instance & Scenario & $N$ & $K_{\\min}$ & $K$ & Constraints & "
+        "Instance & Scenario & $N$ & $K$ & Constraints & "
         "LP time (ms) & Total (ms)",
         rows,
-        "llcccccc",
+        "llccccc",
     )
 
 
 def plot_stability_map(results: pd.DataFrame) -> None:
     main = results[results.Setting == "Main"].copy()
     main["Config"] = main.Scenario.str[:4] + ". " + main.Profile.map(PROFILE_NAMES)
-    mat = main.pivot_table(index="Alternative", columns="Config", values="Rho_Rel", sort=False)
+    mat = main.pivot_table(index="Alternative", columns="Config", values="Rho", sort=False)
     ranks = competition_ranks(mat.index)
     mat = mat.loc[(mat > 1e-9).any(axis=1)]
     mat = mat.loc[ranks.reindex(mat.index).sort_values().index]
     mat.index = [f"{a} (#{ranks[a]})" for a in mat.index]
     fig, ax = plt.subplots(figsize=(8, 0.45 * len(mat) + 1.8))
     shown = mat.where(mat > 1e-9)
-    im = ax.imshow(shown.to_numpy(), cmap="Blues", vmin=0, vmax=1, aspect="auto")
+    im = ax.imshow(shown.to_numpy(), cmap="Blues", vmin=0, vmax=None, aspect="auto")
     for (r, c), v in np.ndenumerate(shown.to_numpy()):
         if not np.isnan(v):
             ax.text(c, r, f"{v:.2f}", ha="center", va="center", fontsize=8,
                     color="white" if v > 0.6 else "black")
     ax.set_xticks(range(mat.shape[1]), mat.columns, rotation=35, ha="right")
     ax.set_yticks(range(mat.shape[0]), mat.index)
-    fig.colorbar(im, ax=ax, label=r"$\rho_i/\rho_{\mathcal{P}}$")
+    fig.colorbar(im, ax=ax, label=r"$\rho_i$")
     fig.tight_layout()
     fig.savefig(OUTPUT_PLOTS_AND_TABLES_DIR / "stability_map.png", dpi=300)
     plt.close(fig)
@@ -247,21 +267,35 @@ def plot_quantifiers(winners: pd.DataFrame) -> None:
 
 
 def extension_table(ext: pd.DataFrame) -> None:
+    """Per instance and candidate set: distinct winners over the eight configurations,
+    configurations won by the best competition schedule (alpha = 0.5 objective) and
+    Full-Spectrum radii; the mixed-alpha row gives median radii of matched-size draws."""
+    def rho_star(g: pd.DataFrame) -> str:
+        fs = g[g.Profile == "Full_Spectrum"].set_index("Scenario").Rho
+        return f"{fs['Baseline']:.4f} / {fs['Sustainability']:.4f}"
+
     rows = []
     for (instance, set_name), g in ext.groupby(["Instance", "Set"], sort=False):
         n = g["N"].iloc[0]
         label = "all $\\alpha$" if set_name == "all" else f"$\\alpha={set_name.split('=')[1]}$"
         rows.append(
-            f"{instance} & {label} & {n} & {g.N_Positive.median():.0f} & "
-            f"{g.Winner.nunique()} & {g.Winner_Score_Rank.median():.0f} & "
-            f"{100 * g.Best_Score_Positive.mean():.0f} & {100 * g.Relative_Gap.median():.0f} \\\\"
+            f"{instance} & {label} & {n} & {g.Winner.nunique()} & "
+            f"{int((g.Winner_Score_Rank == 1).sum())} & {rho_star(g)} \\\\"
         )
+        if instance == "X12" and set_name == "alpha=0.75":
+            draws = pd.read_csv(WOWA_EXTENSION_CSV_PATH.with_name("wowa_extension_mixed_draws.csv"))
+            med = draws.groupby("Scenario").Rho_Star.median()
+            rows.append(
+                f"X12 & mixed $\\alpha$ & "
+                f"{ext[(ext.Instance == 'X12') & (ext.Set == 'alpha=0.5')].N.iloc[0]} & --- & --- & "
+                f"{med['Baseline']:.4f} / {med['Sustainability']:.4f} \\\\"
+            )
     write_table(
         "extension_table",
-        "Instance & Candidates & $N$ & Positive radius & Winners & "
-        "Winner rank & Best score positive (\\%) & $\\Delta_\\rho$ (\\%)",
+        r"Instance & Candidates & $N$ & Winners & \shortstack{Best score\\selected (of 8)} & "
+        r"$\rho^*$ Full-Spectrum (B / S)",
         rows,
-        "llcccccc",
+        "llcccc",
     )
 
 
@@ -278,7 +312,7 @@ def plot_risk_excess() -> None:
                    label=f"$\\alpha={alpha}$, {solver.replace('team', 'T')}")
     w = runs[runs.Alternative.isin(winners)]
     ax.scatter(w.mean_risk, w.expected_excess, s=160, facecolors="none", edgecolors="red",
-               label="Most stable (some set and configuration)")
+               label="Most robust (some set and configuration)")
     ax.set_xlabel(r"Mean risk $\overline{R}$")
     ax.set_ylabel(r"Expected excess $\overline{E}$")
     ax.legend(fontsize=6, ncol=2)
@@ -292,6 +326,7 @@ def main() -> None:
     results = pd.read_csv(WOWA_STABILITY_RESULTS_CSV_PATH)
     winners = pd.read_csv(WOWA_STABILITY_SCENARIOS_CSV_PATH)
     selection_tables(winners, results)
+    competition_comparison_table(results)
     lp_size_table(
         pd.read_csv(WOWA_GRID_SUMMARY_CSV_PATH),
         pd.read_csv(WOWA_EXTENSION_LP_SIZE_CSV_PATH) if WOWA_EXTENSION_LP_SIZE_CSV_PATH.exists() else None,

@@ -26,7 +26,6 @@ from project_paths import (  # noqa: E402
     OUTPUT_PLOTS_AND_TABLES_DIR,
     OUTPUT_TEX_DIR,
     SUPPLEMENTARY_CSV_DIR,
-    WOWA_SHAPLEY_DEVIATION_CSV_PATH,
     WOWA_STABILITY_RESULTS_CSV_PATH,
     ensure_output_tree,
 )
@@ -58,28 +57,25 @@ def sensitivity_table(results):
             other = results[(results["Setting"] == setting) & (results["Scenario"] == s) & (results["Profile"] == p)]
             m = ref.merge(other, on="Alternative")
             taus.append(kendalltau(m["Rho_x"], m["Rho_y"])[0])
-        rho_p = {st: results[(results["Setting"] == st) & (results["Scenario"] == s) & (results["Profile"] == p)]["Rho_P"].iloc[0]
-                 for st, _ in settings}
         rows.append(f"{s} & {PROFILE_NAMES[p]} & " + " & ".join(tex_id(win[st][(s, p)]) for st, _ in settings)
-                    + f" & {min(taus):.3f} & {rho_p['Main']:.4f} & {rho_p['Shapley_0.01']:.4f} \\\\")
+                    + f" & {min(taus):.3f} " + r"\\")
     write_table("stability_sensitivity_table",
                 "Scenario & Profile & " + " & ".join(n for _, n in settings)
-                + r" & min.\ $\tau$ & $\rho_{\mathcal P}$ ($0.1$) & $\rho_{\mathcal P}$ ($0.01$)", rows, "llllllccc")
+                + r" & min.\ $\tau$", rows, "llllllc")
 
 
 def shapley_deviation_table(results):
     """
-    delta* (smallest max_j |phi_j - p_j| in the profile) and, for each Shapley tolerance, the
-    most stable alternative with max_j |phi_j - p_j| at the center of its ball.
+    For each Shapley tolerance, the most stable alternative with max_j |phi_j - p_j| at the
+    center of its ball.
     """
-    delta_star = pd.read_csv(WOWA_SHAPLEY_DEVIATION_CSV_PATH).set_index(["Scenario", "Profile"]).Delta_Star
     weights = build_weighting_scenarios()
     settings = [("Free_Shapley", "free"), ("Main", r"$\varepsilon=0.1$"),
                 ("Shapley_0.05", r"$\varepsilon=0.05$"), ("Shapley_0.01", r"$\varepsilon=0.01$")]
     rows = []
     for s, p in COMBOS:
         target = np.array([weights[s][c] for c in CRITERIA])
-        cells = [f"{delta_star[(s, p)]:.3f}"]
+        cells = []
         for setting, _ in settings:
             g = results[(results.Scenario == s) & (results.Profile == p) & (results.Setting == setting)]
             best = g[g.Rho >= g.Rho.max() - 1e-9]
@@ -87,25 +83,48 @@ def shapley_deviation_table(results):
             cells.append(f"{tex_id(' / '.join(sorted(best.Alternative)))} ({deviation:.3f})")
         rows.append(f"{s} & {PROFILE_NAMES[p]} & " + " & ".join(cells) + " \\\\")
     write_table("shapley_deviation_table",
-                r"Scenario & Profile & $\delta^*$ & " + " & ".join(n for _, n in settings),
-                rows, "llclllll")
+                r"Scenario & Profile & " + " & ".join(n for _, n in settings),
+                rows, "llllll")
+    compact_rows = rows
+    for alternative, label in [("T1_D300_S33", "$S_1$"), ("T2_D500_S42", "$S_2$"),
+                               ("T3_D300_S33", "$S_3$")]:
+        compact_rows = [row.replace(tex_id(alternative), label) for row in compact_rows]
+    write_table("shapley_tolerance_compact_table",
+                r"Scenario & Profile & " + " & ".join(n for _, n in settings),
+                compact_rows, "llllll")
+
+
+def eligibility_table(results):
+    """Alternatives not dominated for every quantifier (Section 3) and with a positive radius."""
+    dom = pd.read_csv(IN_DIR / "weighted_dominance.csv").set_index("Scenario")
+    main = results[results.Setting == "Main"]
+    rows = []
+    for s in SCENARIOS:
+        counts = [str(int((main[(main.Scenario == s) & (main.Profile == p[0])].Rho > 1e-9).sum()))
+                  for p in PROFILES]
+        rows.append(f"{s} & {dom.N[s]} & {dom.Not_Dominated[s]} & " + " & ".join(counts) + " \\\\")
+    write_table("eligibility_table",
+                "Scenario & $N$ & Not dominated & "
+                + " & ".join(PROFILE_NAMES[p[0]] for p in PROFILES),
+                rows, "lcc" + "c" * len(PROFILES))
 
 
 def patterns_table():
     alts = pd.read_csv(IN_DIR / "patterns_alternatives.csv")
+    comps = pd.read_csv(IN_DIR / "patterns_components.csv").set_index(["Scenario", "Profile"])
     rows = []
     for s, p in COMBOS:
         g = alts[(alts["Scenario"] == s) & (alts["Profile"] == p)]
         pos = g[g["Rho"] > 1e-9]
-        cells = [str(len(pos)), f"{spearmanr(pos['Rho'], pos['Entropy'])[0]:.2f}",
-                 f"{spearmanr(pos['Rho'], pos['KL_from_linear'])[0]:.2f}"]
+        cells = [f"{spearmanr(pos['Rho'], pos['Entropy'])[0]:.2f}"]
         for var in ("Score", "Time", "Distinctiveness"):
-            r, pv = spearmanr(g["Rho"], g[var])
+            sample = g[~g.Alternative.str.startswith("T3_")] if var == "Time" else g
+            r, pv = spearmanr(sample["Rho"], sample[var])
             cells.append(f"{r:.2f}{'$^*$' if pv < 0.05 else ''}")
         rows.append(f"{s} & {PROFILE_NAMES[p]} & " + " & ".join(cells) + " \\\\")
     write_table("patterns_table",
-                r"Scenario & Profile & $N_{>0}$ & $H(\mathbf W^*)$ & $D(\mathbf W^*\Vert\mathbf W^{\mathrm{lin}})$ & Score $f$ & Time limit & Distance to nearest",
-                rows, "llcccccc")
+                r"Scenario & Profile & Entropy of centre & Competition score & Time limit & Distance to nearest",
+                rows, "llcccc")
 
 
 def map_tables():
@@ -117,18 +136,7 @@ def map_tables():
     freq = aligned.groupby(["Scenario", "Profile", "Alternative"]).agg(
         Wins=("Winner", "mean"), Mean=("Rho", "mean"), Min=("Rho", "min"), Max=("Rho", "max")).reset_index()
     freq.to_csv(IN_DIR / "mds_alternative_frequency.csv", index=False)
-    top = freq[freq["Wins"] > 0].copy()
     ref = winners_of(aligned[aligned["Map"] == "reference"])
-    rows = []
-    for s, p in COMBOS:
-        g = top[(top["Scenario"] == s) & (top["Profile"] == p)].sort_values("Wins", ascending=False)
-        dagger = "$^\\dagger$"
-        cells = [f"{tex_id(r.Alternative)}{dagger if r.Alternative in ref[(s, p)] else ''} ({100 * r.Wins:.0f}; "
-                 f"{r.Mean:.3f} [{r.Min:.3f}, {r.Max:.3f}])" for r in g.head(3).itertuples()]
-        rows.append(f"{s} & {PROFILE_NAMES[p]} & " + "; ".join(cells) + " \\\\")
-    write_table("map_frequency_table", r"Scenario & Profile & Most stable alternative (\% of maps; mean $\rho$ [range])",
-                rows, "llp{11cm}")
-
     # Orientation and ablation summaries.
     orient = radii[radii["Variant"] == "orientation"]
     win_or = {m: winners_of(g) for m, g in orient.groupby("Map")}
@@ -143,6 +151,16 @@ def map_tables():
         rows.append(f"{s} & {PROFILE_NAMES[p]} & {tex_id(r0)} & "
                     f"{100 * np.mean([w[(s, p)] == r0 for w in win_or.values()]):.0f} & {tex_id(or_counts.index[0])} ({100 * or_counts.iloc[0] / or_counts.sum():.0f}) & "
                     f"{tex_id(ct_counts.index[0])} ({100 * ct_counts.iloc[0] / ct_counts.sum():.0f}) & {tex_id(ablation[(s, p)])} \\\\")
+    freq_rows = []
+    for s, p in COMBOS:
+        g = freq[(freq["Scenario"] == s) & (freq["Profile"] == p)].sort_values("Wins", ascending=False)
+        r0 = ref[(s, p)]
+        kept = g.loc[g.Alternative == r0, "Wins"]
+        freq_rows.append(f"{s} & {PROFILE_NAMES[p]} & {tex_id(r0)} & {100 * (kept.iloc[0] if len(kept) else 0):.0f} & "
+                    f"{tex_id(g.Alternative.iloc[0])} ({100 * g.Wins.iloc[0]:.0f}) & {tex_id(ablation[(s, p)])} \\\\")
+    write_table("map_frequency_table",
+                r"Scenario & Profile & Reference map & Retained (\%) & Most frequent (\%) & Without $c_5,c_6$",
+                freq_rows, "llllll")
     write_table("map_variants_table",
                 r"Scenario & Profile & Reference map & Same, orientations (\%) & Most frequent, orientations (\%) & Most frequent, contained maps (\%) & Without $c_5,c_6$",
                 rows, "llllll l")
@@ -182,20 +200,30 @@ def mds_table(summary):
     def both(value):
         return f"\\multicolumn{{2}}{{c}}{{{value}}}"
 
+    def group(title):
+        return f"\\multicolumn{{3}}{{l}}{{\\emph{{{title}}}}} \\\\"
+
     rows = [
-        f"Disparity of a repeated seed / of seed 42 with the reference & {both(f'{repeat:.0e} / {seed42:.0e}')} \\\\",
-        f"Stress of the reference map (rank among the 21 maps) & {both(f'{ref:.4f} ({rank_ref})')} \\\\",
-        f"Stress of the 20 seeds, median [range] & {both(f'{seeds.median():.4f} [{seeds.min():.4f}, {seeds.max():.4f}]')} \\\\",
-        f"Runs reaching the iteration limit & {both(f'{at_limit} of 20')} \\\\",
-        f"Procrustes disparity with the reference, median & {both(f'{a.Disparity.median():.3f}')} \\\\",
-        f"Displacement, median (km) & {a.Shift_Median_km.median():.0f} & {c.Shift_Median_km.median():.0f} \\\\",
-        f"Interventions with changed $\\mu_{{\\mathrm{{ski}}}}$ (\\%) & {100 * a.Ski_Changed.median():.0f} & {100 * c.Ski_Changed.median():.0f} \\\\",
-        f"Interventions with changed $\\mu_{{\\mathrm{{park}}}}$ (\\%) & {100 * a.Park_Changed.median():.0f} & {100 * c.Park_Changed.median():.0f} \\\\",
-        f"Spearman of $c_5$ between maps, median [range] & {med('aligned', 'pairs_c5')} & {med('contained', 'pairs_c5')} \\\\",
-        f"Spearman of $c_6$ between maps, median [range] & {med('aligned', 'pairs_c6')} & {med('contained', 'pairs_c6')} \\\\",
-        f"Spearman of $c_5$ / $c_6$ between orientations, median [range] & {both(med('orientation', 'pairs_c5') + ' / ' + med('orientation', 'pairs_c6'))} \\\\",
+        group("Reconstruction"),
+        f"\\quad Disparity of a repeated seed & {both(f'{repeat:.0e}')} \\\\",
+        f"\\quad Disparity of seed 42 with the reference & {both(f'{seed42:.0e}')} \\\\",
+        f"\\quad Stress of the reference map (rank among the 21 maps) & {both(f'{ref:.4f} ({rank_ref})')} \\\\",
+        f"\\quad Stress of the 20 seeds, median [range] & {both(f'{seeds.median():.4f} [{seeds.min():.4f}, {seeds.max():.4f}]')} \\\\",
+        f"\\quad Runs reaching the iteration limit & {both(f'{at_limit} of 20')} \\\\",
+        f"\\quad Procrustes disparity with the reference, median & {both(f'{a.Disparity.median():.3f}')} \\\\",
+        group("Orientations (16 placements)"),
+        f"\\quad Spearman of $c_5$ between orientations, median [range] & {both(med('orientation', 'pairs_c5'))} \\\\",
+        f"\\quad Spearman of $c_6$ between orientations, median [range] & {both(med('orientation', 'pairs_c6'))} \\\\",
+        "\\midrule",
+        "\\emph{Seed maps} & Aligned & Aligned and contained \\\\",
+        "\\midrule",
+        f"\\quad Displacement, median (km) & {a.Shift_Median_km.median():.0f} & {c.Shift_Median_km.median():.0f} \\\\",
+        f"\\quad Interventions with changed $\\mu_{{\\mathrm{{ski}}}}$ (\\%) & {100 * a.Ski_Changed.median():.0f} & {100 * c.Ski_Changed.median():.0f} \\\\",
+        f"\\quad Interventions with changed $\\mu_{{\\mathrm{{park}}}}$ (\\%) & {100 * a.Park_Changed.median():.0f} & {100 * c.Park_Changed.median():.0f} \\\\",
+        f"\\quad Spearman of $c_5$ between maps, median [range] & {med('aligned', 'pairs_c5')} & {med('contained', 'pairs_c5')} \\\\",
+        f"\\quad Spearman of $c_6$ between maps, median [range] & {med('aligned', 'pairs_c6')} & {med('contained', 'pairs_c6')} \\\\",
     ]
-    write_table("mds_stability_table", "Measure & Aligned & Aligned and contained", rows, "lcc")
+    write_table("mds_stability_table", "& \\multicolumn{2}{c}{Value}", rows, "lcc")
 
 
 def map_figure(freq):
@@ -256,19 +284,20 @@ def weight_sensitivity_tables():
                 r"Perturbation of $\mathbf p$ & $K$ & $\max_j|p'_j-p_j|$ & "
                 + " & ".join(NORM_NAMES[n] for n in NORMS), rows, "lcc" + "c" * len(NORMS))
 
+    draws = pd.read_csv(IN_DIR / "weight_sensitivity_draws.csv")
+    lattice = draws[draws.Design.str.startswith("lattice") & (draws.Norm == "L2")]
+    original = draws[(draws.Design == "original") & (draws.Norm == "L2")].set_index(["Scenario", "Profile"]).Winner
     rows = []
     for s, p in COMBOS:
-        cells = []
-        for design, eta in (("free", 0.01), ("tie_preserving", 0.01), ("lattice", 0.05)):
-            r = df[(df.Design_Group == design) & (df.Eta == eta) & (df.Norm == "L2")
-                   & (df.Scenario == s) & (df.Profile == p)].iloc[0]
-            cells.append(f"{100 * r.Share_Same:.0f} & {tex_id(r.Most_Frequent)} ({100 * r.Share_Most_Frequent:.0f})")
-        rows.append(f"{s} & {PROFILE_NAMES[p]} & " + " & ".join(cells) + " \\\\")
+        g = lattice[(lattice.Scenario == s) & (lattice.Profile == p)]
+        r0 = original[(s, p)]
+        shares = g.Winner.value_counts(normalize=True)
+        others = shares.drop(r0, errors="ignore")
+        other = f"{tex_id(others.index[0])} ({100 * others.iloc[0]:.0f})" if len(others) else "---"
+        rows.append(f"{s} & {PROFILE_NAMES[p]} & {tex_id(r0)} & {100 * shares.get(r0, 0.0):.0f} & {other} " + r"\\")
     write_table("p_sensitivity_table",
-                r"Scenario & Profile & \multicolumn{2}{c}{free, $\eta=0.01$} & "
-                r"\multicolumn{2}{c}{tie-preserving, $\eta=0.01$} & \multicolumn{2}{c}{0.05 lattice} \\"
-                "\n & & Same (\\%) & Most frequent (\\%) & Same (\\%) & Most frequent (\\%) & Same (\\%) & Most frequent (\\%)",
-                rows, "llclclcl")
+                r"Scenario & Profile & Reference & Retained (\%) & Otherwise selected (\%)",
+                rows, "lllcl")
 
 
 def main():
@@ -277,6 +306,8 @@ def main():
     sensitivity_table(results)
     shapley_deviation_table(results)
     patterns_table()
+    if (IN_DIR / "weighted_dominance.csv").exists():
+        eligibility_table(results)
     if (IN_DIR / "mds_radii.csv").exists():
         map_figure(map_tables())
     if (IN_DIR / "weight_sensitivity_summary.csv").exists():

@@ -32,7 +32,7 @@ X12, with X03 and X13 as extensions), from candidates produced by three competit
 | `spatial_reconstruction.py`, `spatial_memberships.py`, `fuzzy_sets.py` | MDS map of the interventions and fuzzy proximity memberships |
 | `RTE_ChallengeROADEF2020_checker.py` | official checker of the challenge |
 | `project_paths.py` | input and output paths |
-| `data/` | candidate schedules, solver runner, map layers |
+| `data/` | candidate schedules, solver runner, map layers, reference MDS map of X12 |
 | `output/` | generated files (`csv/`, `tex/`, `figures/`, `npy/`, `md/`), not tracked |
 
 ## Installation
@@ -72,22 +72,25 @@ their directions are listed in `CRITERIA_DIRECTIONS`.
 From the repository root, in this order:
 
 ```bash
-python spatial_reconstruction.py                  # MDS map of the X12 interventions (output/npy/)
 python decision_matrix_builder.py                 # raw decision matrix of X12
 python decision_matrix_builder.py --extension     # raw decision matrices of X03, X12 and X13
 python wowa_stability_analysis.py                 # main experiment
 python wowa_extension_analysis.py                 # extended candidate sets
+python plots_and_tables/generate_appendix_tables.py   # appendix tables (competition scores, read below)
 python mds_stability_analysis.py                  # MDS seeds (needs RSCRIPT)
 python supplementary_analyses/mds_checks.py       # checks of the map (needs RSCRIPT)
+python supplementary_analyses/weighted_dominance.py
 python supplementary_analyses/patterns.py
 python supplementary_analyses/norm_and_weight_sensitivity.py   # about 30 min on 8 cores
 python supplementary_analyses/fragility_dual_check.py
-python plots_and_tables/generate_appendix_tables.py
 python plots_and_tables/plot_stability_results.py
 python plots_and_tables/supplementary_tables.py
 python plots_and_tables/plot_robust_alternatives_radar.py
 ```
 
+The reference MDS map of the X12 interventions (seed 42) is provided in
+`data/spatial_reconstruction/`, so `spatial_reconstruction.py` is not needed to reproduce
+the paper; the maps of X03 and X13 are computed by the extension (needs RSCRIPT).
 The decision matrices need the instances (see below), and the extension needs the
 calendars of `data/Alternatives/Results/`. Tables are written to `output/tex/` and figures
 to `output/figures/plots_and_tables/`. The remaining scripts of `plots_and_tables/` draw the

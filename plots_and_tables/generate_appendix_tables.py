@@ -76,15 +76,14 @@ def _evaluate_solution(instance: dict, path: Path) -> tuple[float, float, float]
 
 def _decision_matrix_rows(df: pd.DataFrame) -> Iterable[str]:
     for _, row in df.iterrows():
+        alternative = str(row["Alternative"])
         cells = [
-            _escape_latex(str(row["Alternative"])),
-            f"{row['Reliability Stress']:.3f}",
-            f"{row['Resource Slack']:.3f}",
-            f"{row['Ski Season Risk']:.3f}",
-            f"{row['Social Weekend Risk']:.3f}",
-            f"{row['Max Critical Overlap']:.3f}",
-            f"{row['Risk Volatility']:.3f}",
-            f"{row['Summer Eco-Stress']:.3f}",
+            _escape_latex(alternative),
+            *[f"{row[column]:.3f}" for column in [
+                "Reliability Stress", "Max Critical Overlap", "Risk Volatility",
+                "Resource Slack", "Ski Season Risk", "Summer Eco-Stress",
+                "Social Weekend Risk",
+            ]],
         ]
         yield " & ".join(cells) + r" \\"
 
@@ -119,7 +118,7 @@ def build_normalized_decision_matrix_table() -> str:
         "\n"
         r"\renewcommand{\arraystretch}{0.90}"
         "\n"
-        r"\caption{Decision matrix for WOWA (normalized).}"
+        r"\caption{Normalized decision matrix in criterion order $c_1,\ldots,c_7$.}"
         "\n"
         r"\label{tab:dm_matrix}"
         "\n"
@@ -129,7 +128,7 @@ def build_normalized_decision_matrix_table() -> str:
         "\n"
         r"\toprule"
         "\n"
-        r"Alternative & \shortstack{Reliability\\Stress} & \shortstack{Resource\\Slack} & \shortstack{Ski Season\\Risk} & \shortstack{Social\\Weekend Risk} & \shortstack{Max Critical\\Overlap} & \shortstack{Risk\\Volatility} & Summer Eco-Stress \\"
+        r"Alternative & $c_1$ & $c_2$ & $c_3$ & $c_4$ & $c_5$ & $c_6$ & $c_7$ \\"
         "\n"
         r"\midrule"
         "\n"
@@ -186,37 +185,27 @@ def build_solver_results_table() -> str:
         instance = checker.read_json(str(INSTANCE_PATH))
 
     rows = "\n".join(_solver_rows(instance))
-    return (
-        r"{\centering"
-        "\n"
-        r"\scriptsize"
-        "\n"
-        r"\renewcommand{\arraystretch}{0.72}"
-        "\n"
-        r"\captionof{table}{Solver execution results for the solution pool generation. Team~1 \citep{top1roadef}, Team~2 \citep{Consueloroadef}, and Team~3 \citep{top5roadef}. Dashes (---) indicate that no feasible solution was found.}"
-        "\n"
-        r"\label{tab:solver_results}"
-        "\n"
-        r"\begin{adjustbox}{center}"
-        "\n"
-        r"\begin{tabular}{llccrrr}"
-        "\n"
-        r"\toprule"
-        "\n"
-        r"\textbf{ID} & \textbf{Solver} & \textbf{Time (s)} & \textbf{Seed} & \textbf{Mean Risk} & \textbf{Excess} & \textbf{Final Score} \\"
-        "\n"
-        r"\midrule"
-        "\n"
-        f"{rows}\n"
-        r"\bottomrule"
-        "\n"
-        r"\end{tabular}"
-        "\n"
-        r"\end{adjustbox}"
-        "\n"
-        r"}"
-        "\n"
+    header = (
+        r"\textbf{ID} & \textbf{Solver} & \textbf{Time (s)} & \textbf{Seed} & "
+        r"\textbf{Mean Risk} & \textbf{Excess} & \textbf{Final Score} \\"
     )
+    caption = (
+        r"Solver execution results for the solution pool generation. "
+        r"Team~1 \citep{top1roadef}, Team~2 \citep{Consueloroadef}, and "
+        r"Team~3 \citep{top5roadef}. Dashes (---) indicate that no feasible solution was found."
+    )
+    return "\n".join([
+        r"\begingroup\scriptsize",
+        r"\renewcommand{\arraystretch}{0.72}",
+        r"\begin{longtable}{llccrrr}",
+        r"\caption{" + caption + r"}\label{tab:solver_results}\\",
+        r"\toprule", header, r"\midrule", r"\endfirsthead",
+        r"\multicolumn{7}{l}{Table \thetable{} continued}\\",
+        r"\toprule", header, r"\midrule", r"\endhead",
+        r"\bottomrule", r"\endfoot", rows,
+        r"\end{longtable}", r"\endgroup", "",
+    ])
+
 
 
 def main() -> None:

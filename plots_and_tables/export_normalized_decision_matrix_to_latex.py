@@ -38,14 +38,8 @@ def load_normalized_decision_matrix(path: Path) -> pd.DataFrame:
 
     # Keep the explicit column order from the CSV
     desired_order = [
-        "Alternative",
-        "Reliability Stress",
-        "Resource Slack",
-        "Ski Season Risk",
-        "Social Weekend Risk",
-        "Max Critical Overlap",
-        "Risk Volatility",
-        "Summer Eco-Stress",
+        "Alternative", "Reliability Stress", "Max Critical Overlap", "Risk Volatility",
+        "Resource Slack", "Ski Season Risk", "Summer Eco-Stress", "Social Weekend Risk",
     ]
     df = df[desired_order]
     return df
@@ -54,16 +48,7 @@ def load_normalized_decision_matrix(path: Path) -> pd.DataFrame:
 def build_decision_matrix_tabular(df: pd.DataFrame) -> str:
     """Return a LaTeX tabular for the given dataframe without extra deps."""
     col_format = "l" + "r" * (len(df.columns) - 1)
-    header_cells = [
-        "Alternative",
-        r"\shortstack{Reliability\\Stress}",
-        r"\shortstack{Resource\\Slack}",
-        r"\shortstack{Ski Season\\Risk}",
-        r"\shortstack{Social\\Weekend Risk}",
-        r"\shortstack{Max Critical\\Overlap}",
-        r"\shortstack{Risk\\Volatility}",
-        "Summer Eco-Stress",
-    ]
+    header_cells = ["Alternative", *[f"$c_{j}$" for j in range(1, 8)]]
     header = " & ".join(header_cells) + r" \\"
     body_lines = [" & ".join(map(str, row)) + r" \\" for row in df.values]
 

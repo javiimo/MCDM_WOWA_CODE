@@ -69,17 +69,19 @@ of the tie with it. `MAIN_NORM` sets the norm of every experiment.
 | Step | Script | Produces | Paper |
 |---|---|---|---|
 | 1 | `data/Alternatives/Solvers/execute.py`, `extract_results.py` | candidate schedules | experimental setup, Appendix D |
-| 2 | `spatial_reconstruction.py` | MDS map `output/npy/points_*.npy` | Appendix B |
+| 2 | `spatial_reconstruction.py` | MDS map of X12 (seed 42), tracked in `data/spatial_reconstruction/` | Appendix B |
 | 3 | `decision_matrix_builder.py` | raw matrix of X12 | decision model, Appendix C |
 | 3' | `decision_matrix_builder.py --extension` | raw matrices of X03, X12 and X13 (all $\alpha$) | extensions |
 | 4 | `wowa_stability_analysis.py` | radii, centers, fragility, Shapley tolerances, $\delta^*$, choice-set size, grid size | results |
 | 5 | `wowa_extension_analysis.py` | selection on the extended candidate sets, LP size | extensions, computational cost |
-| 6 | `mds_stability_analysis.py` | 20 MDS seeds: Procrustes alignment, containment, memberships, selection | map uncertainty, Appendix B |
-| 7 | `supplementary_analyses/mds_checks.py` | reproducibility, stress, orientations, rank correlations, ablation of $c_5,c_6$ | map uncertainty, Appendix B |
-| 8 | `supplementary_analyses/patterns.py` | correlations of the radius with entropy, score, time limit and distinctiveness | patterns of stability |
-| 9 | `supplementary_analyses/norm_and_weight_sensitivity.py` | selection under each norm, refinement, perturbations of $\mathbf p$, 0.05-lattice neighbours | sensitivity to $\mathbf p$ and to the norm |
-| 10 | `supplementary_analyses/fragility_dual_check.py` | range of $\theta_c$ over the optimal duals | direction of fragility |
-| 11 | `plots_and_tables/*.py` | LaTeX tables and figures | all tables and figures |
+| 6 | `plots_and_tables/generate_appendix_tables.py` | decision matrix and solver runs with competition scores | Appendices C and D |
+| 7 | `mds_stability_analysis.py` | 20 MDS seeds: Procrustes alignment, containment, memberships, selection | map uncertainty, Appendix B |
+| 8 | `supplementary_analyses/mds_checks.py` | reproducibility, stress, orientations, rank correlations, ablation of $c_5,c_6$ | map uncertainty, Appendix B |
+| 9 | `supplementary_analyses/weighted_dominance.py` | alternatives dominated for every quantifier | selection and its margins |
+| 10 | `supplementary_analyses/patterns.py` | correlations of the radius with entropy, score, time limit and distinctiveness | patterns of stability |
+| 11 | `supplementary_analyses/norm_and_weight_sensitivity.py` | selection under each norm, refinement, perturbations of $\mathbf p$, 0.05-lattice neighbours | sensitivity to $\mathbf p$ and to the norm |
+| 12 | `supplementary_analyses/fragility_dual_check.py` | range of $\theta_c$ over the optimal duals | direction of fragility |
+| 13 | `plots_and_tables/*.py` | LaTeX tables and figures | all tables and figures |
 
 ## 4. Decision matrix (`maintenance_scheduling_model.py`)
 

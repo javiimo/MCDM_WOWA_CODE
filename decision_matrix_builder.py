@@ -365,11 +365,13 @@ if __name__ == "__main__":
     if "--extension" in sys.argv:
         ensure_output_tree()
         names = [a for a in sys.argv[1:] if a.startswith("X")] or ["X03", "X12", "X13"]
-        build_extension_decision_matrix(names).to_csv(
-            EXTENSION_DECISION_MATRIX_CSV_PATH.with_name(
-                f"decision_matrix_raw_extension_{'_'.join(names)}.csv"
-            ),
-            index=False,
-        )
+        # One file per instance, as read by wowa_extension_analysis.py.
+        for name in names:
+            build_extension_decision_matrix([name]).to_csv(
+                EXTENSION_DECISION_MATRIX_CSV_PATH.with_name(
+                    f"decision_matrix_raw_extension_{name}.csv"
+                ),
+                index=False,
+            )
     else:
         main()

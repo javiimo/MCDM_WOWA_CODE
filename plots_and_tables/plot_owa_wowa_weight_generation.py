@@ -1,3 +1,9 @@
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from project_paths import OUTPUT_PLOTS_AND_TABLES_DIR
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
@@ -101,7 +107,7 @@ def plot_criteria(ax, props, is_wowa):
         )
 
         # Etiqueta del Peso
-        label_text = f"$w_{{{j}}}$"
+        label_text = f"$\\omega_{{{j}}}$" if is_wowa else f"$w_{{{j}}}$"
         # if not is_wowa:
         #      label_text = f'$w_{{{j}}}=Q({j}/{n})-Q({j-1}/{n})$'
 
@@ -121,14 +127,14 @@ def plot_criteria(ax, props, is_wowa):
 
 # Izquierda: OWA
 plot_criteria(ax1, prop_owa, is_wowa=False)
-ax1.set_title(r"OWA ($w_i$ from uniform weight partition)", fontsize=24, pad=15)
+ax1.set_title(r"OWA ($w_j$ from uniform weight partition)", fontsize=24, pad=15)
 ax1.set_xlabel("Accumulated Weight", fontsize=18)
 ax1.set_ylabel("Quantifier Value, $Q(t)$", fontsize=18)
 ax1.set_xlim(-0.02, 1.15)  # Match right plot limit
 
 # Derecha: wowa
 plot_criteria(ax2, prop_wowa, is_wowa=True)
-ax2.set_title(r"WOWA ($w_i$ from variable weight partition)", fontsize=24, pad=15)
+ax2.set_title(r"WOWA ($\omega_j$ from variable weight partition)", fontsize=24, pad=15)
 ax2.set_xlabel("Accumulated Weight", fontsize=18)
 ax2.set_xlim(-0.02, 1.15)  # Límite cambiado a 1.15
 
@@ -164,4 +170,6 @@ plt.suptitle(
     r"Weight Generation via Quantifier: OWA vs WOWA", fontsize=26, y=0.98
 )  # Increased fontsize
 plt.tight_layout()
-plt.show()
+OUTPUT_PLOTS_AND_TABLES_DIR.mkdir(parents=True, exist_ok=True)
+fig.savefig(OUTPUT_PLOTS_AND_TABLES_DIR / "Weight_Generation_OWA_WOWA.png", dpi=300)
+plt.close(fig)

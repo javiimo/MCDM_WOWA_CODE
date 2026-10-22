@@ -23,7 +23,6 @@ from spatial_memberships import (
 )
 from project_paths import (
     DEFAULT_SPATIAL_RECONSTRUCTION_POINTS_PATH,
-    OUTPUT_NPY_DIR,
     PLOTS_AND_TABLES_SPATIAL_RECONSTRUCTION_MAP_PATH,
     ensure_output_tree,
 )
@@ -31,14 +30,8 @@ from project_paths import (
 
 def plot_spatial_reconstruction_map():
     ensure_output_tree()
-    point_candidates = sorted(
-        p for p in OUTPUT_NPY_DIR.glob("points_*.npy") if "_keys_" not in p.name
-    )
-    points_path = (
-        point_candidates[-1]
-        if point_candidates
-        else DEFAULT_SPATIAL_RECONSTRUCTION_POINTS_PATH
-    )
+    # Reference map of X12 (Appendix B), not the maps of the extension instances.
+    points_path = DEFAULT_SPATIAL_RECONSTRUCTION_POINTS_PATH
 
     try:
         raw_points = np.load(points_path)
