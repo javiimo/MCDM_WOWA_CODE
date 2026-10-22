@@ -165,7 +165,7 @@ def lp_size_table(grid: pd.DataFrame, extension: pd.DataFrame | None = None) -> 
     """Grid size and LP times: X12 choice set of the paper and extended candidate sets."""
     rows = [
         f"X12 & {r.Scenario} & {r.N} & {r.K_complete} & "
-        f"{int(r.Constraints)} & {1000 * r.Mean_LP_Seconds:.2f} & {1000 * r.Total_LP_Seconds:.1f} \\\\"
+        f"{int(r.Constraints)} & {1000 * r.Mean_LP_Seconds:.3f} & {1000 * r.Total_LP_Seconds:.1f} \\\\"
         for r in grid.itertuples()
     ]
     if extension is not None:
@@ -175,7 +175,7 @@ def lp_size_table(grid: pd.DataFrame, extension: pd.DataFrame | None = None) -> 
             rows.append(
                 f"{instance} (extended) & {scenario} & {g.N.iloc[0]} & "
                 f"{g.K_complete.iloc[0]} & {int(g.Constraints.max())} & "
-                f"{1000 * g.LP_Seconds.sum() / n_lps:.2f} & {1000 * g.LP_Seconds.sum():.1f} \\\\"
+                f"{1000 * g.LP_Seconds.sum() / n_lps:.3f} & {1000 * g.LP_Seconds.sum():.1f} \\\\"
             )
     write_table(
         "lp_size_table",

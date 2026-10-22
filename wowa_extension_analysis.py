@@ -73,6 +73,10 @@ def main() -> None:
                                 "K_complete": len(analyzer.grid) - 1,
                                 "Constraints": df["Num_Constraints"].max(),
                                 "LP_Seconds": df["Solve_Time"].sum(),
+                                "N_Infeasible": int((df["Status"] == "infeasible").sum()),
+                                "LP_Seconds_Infeasible": df.loc[
+                                    df["Status"] == "infeasible", "Solve_Time"
+                                ].sum(),
                             })
                         win = df.iloc[0]
                         i_win = alternatives.index(win["Alternative"])

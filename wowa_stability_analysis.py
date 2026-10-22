@@ -419,7 +419,11 @@ class WOWAStabilityAnalyzer:
             model.setObjective(rho, GRB.MAXIMIZE)
             model.optimize()
 
-            row = {"Alternative": self.alternatives[i_cand]}
+            row = {
+                "Alternative": self.alternatives[i_cand],
+                "Num_Constraints": model.NumConstrs,
+                "Solve_Time": model.Runtime,
+            }
             if model.status != GRB.OPTIMAL:
                 row.update({"Rho": 0.0, "Status": "infeasible", "Is_Stable": False})
                 results.append(row)
@@ -446,8 +450,6 @@ class WOWAStabilityAnalyzer:
                     "Entropy": normalized_entropy(center),
                     "Shapley_Entropy": normalized_entropy(phi),
                     "Center": " ".join(f"{v:.6f}" for v in center),
-                    "Num_Constraints": model.NumConstrs,
-                    "Solve_Time": model.Runtime,
                 }
             )
             if rho_val > 1e-9:
@@ -597,6 +599,8 @@ def main() -> None:
             "Constraints": main_df["Num_Constraints"].max(),
             "Mean_LP_Seconds": main_df["Solve_Time"].mean(),
             "Total_LP_Seconds": main_df["Solve_Time"].sum(),
+            "Mean_LP_Seconds_Feasible": main_df.loc[main_df.Status != "infeasible", "Solve_Time"].mean(),
+            "Mean_LP_Seconds_Infeasible": main_df.loc[main_df.Status == "infeasible", "Solve_Time"].mean(),
         })
         size_rows.append(run_choice_set_size_experiment(
             analyzer, scenario_name, shapley_bounds_around_weights(weights)))
